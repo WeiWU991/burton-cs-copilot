@@ -40,7 +40,7 @@ with st.sidebar:
         index=0,
         help="极速模式适合日常快速问答；深度模式适合处理极度复杂的纠纷或分析。"
     )
-    selected_model_name = "gemini-3-flash-previe" if "Flash" in model_choice else "gemini-3-pro-preview"
+    selected_model_name = "gemini-3-flash-preview" if "Flash" in model_choice else "gemini-3-pro-preview"
     
     st.info("💡 说明：价格数据已启用高亮校验机制。")
 
@@ -148,3 +148,4 @@ with col2:
             except Exception as e:
 
                 st.error(f"连接中断，请重试: {e}")
+
