@@ -40,7 +40,7 @@ with st.sidebar:
         index=0,
         help="极速模式适合日常快速问答；深度模式适合处理极度复杂的纠纷或分析。"
     )
-    selected_model_name = "gemini-1.5-flash" if "Flash" in model_choice else "gemini-1.5-pro"
+    selected_model_name = "gemini-3-flash-previe" if "Flash" in model_choice else "gemini-3-pro-preview"
     
     st.info("💡 说明：价格数据已启用高亮校验机制。")
 
@@ -61,7 +61,7 @@ def upload_to_gemini(uploaded_file):
 
 # ================= 界面布局 =================
 st.title("🏂 Burton China 客服智能副驾 (Pilot v1.2)")
-st.caption("🚀 Powered by Gemini 1.5 | Native RAG Technology")
+st.caption("🚀 Powered by YZ-Shield | Native RAG Technology")
 st.divider()
 
 col1, col2 = st.columns([1, 2])
@@ -146,4 +146,5 @@ with col2:
                     response = model.generate_content(request_content)
                     st.markdown(response.text)
             except Exception as e:
+
                 st.error(f"连接中断，请重试: {e}")
