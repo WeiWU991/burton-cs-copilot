@@ -2,6 +2,7 @@ import streamlit as st
 import google.generativeai as genai
 import tempfile
 import os
+import pandas as pd # 引入Pandas处理Excel
 
 # ================= 配置区 =================
 st.set_page_config(page_title="Burton CS Co-pilot", page_icon="🏂", layout="wide")
@@ -50,6 +51,62 @@ with st.sidebar:
         st.rerun() # 强制刷新页面
     st.caption("💡 提示：每当切换不同的客户咨询时，请点击此按钮防止信息混淆。")
 
+# ================= 核心逻辑：文件上传与清洗 =================
+@st.cache_resource
+def process_uploaded_file(uploaded_file):
+    """
+    智能处理文件：
+    1. Excel -> 自动转换为 Markdown 表格文本 (极度节省Token且精准)
+    2. Markdown -> 直接上传
+    """
+    file_ext = uploaded_file.name.split('.')[-1].lower()
+    tmp_path = ""
+    mime_type = "text/plain"
+
+    try:
+        # --- A. 处理 Excel 文件 ---
+        if file_ext in ['xlsx', 'xls']:
+            # 使用 Pandas 读取 Excel
+            df = pd.read_excel(uploaded_file)
+            # 转换为 Markdown 格式字符串
+            text_content = df.to_markdown(index=False)
+            # 添加文件头信息
+            final_content = f"# 数据来源: {uploaded_file.name}\n\n{text_content}"
+            
+            # 写入临时文件
+            with tempfile.NamedTemporaryFile(delete=False, suffix='.txt', mode='w', encoding='utf-8') as tmp_file:
+                tmp_file.write(final_content)
+                tmp_path = tmp_file.name
+                
+        # --- B. 处理 Markdown 文件 ---
+        elif file_ext == 'md':
+            with tempfile.NamedTemporaryFile(delete=False, suffix='.md', mode='wb') as tmp_file:
+                tmp_file.write(uploaded_file.getvalue())
+                tmp_path = tmp_file.name
+                mime_type = "text/md"
+        
+        else:
+            # 兜底逻辑 (理论上前端限制了类型，不会走到这)
+            return None
+
+        # --- 上传至 Gemini ---
+        file_ref = genai.upload_file(path=tmp_path, mime_type=mime_type, display_name=uploaded_file.name)
+        
+        # 等待处理完成
+        while file_ref.state.name == "PROCESSING":
+            import time
+            time.sleep(1)
+            file_ref = genai.get_file(file_ref.name)
+        return file_ref
+
+    except Exception as e:
+        st.error(f"文件处理错误: {e}")
+        return None
+    finally:
+        # 清理临时文件
+        if tmp_path and os.path.exists(tmp_path):
+            os.remove(tmp_path)
+
 # ================= 核心逻辑：文件上传 =================
 # 使用 cache_resource 防止每次点击都重新加载函数
 @st.cache_resource
@@ -79,8 +136,13 @@ col1, col2 = st.columns([1, 2])
 # --- 左侧：知识库 (上传一次即可) ---
 with col1:
     st.subheader("📂 知识库状态")
-    uploaded_files = st.file_uploader("上传资料 (PDF)", type=['pdf'], accept_multiple_files=True, label_visibility="collapsed")
-    
+    # 3. 修改文件过滤器：只允许 Excel 和 Markdown
+    uploaded_files = st.file_uploader(
+        "上传资料 (Excel/Markdown)", 
+        type=['xlsx', 'xls', 'md'], 
+        accept_multiple_files=True, 
+        label_visibility="collapsed"
+    )
     if uploaded_files and api_key:
         # 只有当文件列表为空，或者用户上传了新文件时才处理
         # 这里做一个简单的去重检查，防止页面刷新导致的重复上传
@@ -198,3 +260,4 @@ with col2:
                 st.error(f"生成失败: {e}")
                 if "404" in str(e):
                     st.warning("提示：请检查所选模型是否可用，尝试切换回 Pro 模式。")
+
