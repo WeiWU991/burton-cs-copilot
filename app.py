@@ -2,12 +2,13 @@ import streamlit as st
 import google.generativeai as genai
 import tempfile
 import os
-import pandas as pd # 引入Pandas处理Excel
+import pandas as pd
+import re
 
 # ================= 配置区 =================
 st.set_page_config(page_title="Burton CS Co-pilot", page_icon="🏂", layout="wide")
 
-# --- 1. 读取 Secrets (保持不变) ---
+# --- 1. 读取 Secrets ---
 try:
     api_key = st.secrets["GEMINI_API_KEY"]
     genai.configure(api_key=api_key)
@@ -16,13 +17,60 @@ except Exception as e:
     api_status = f"⚠️ 配置错误: {str(e)}"
     api_key = None
 
-# --- 2. 初始化 Session State (记忆库) ---
+# --- 2. 初始化 Session State ---
 if "chat_history" not in st.session_state:
-    st.session_state.chat_history = [] # 存储对话历史
+    st.session_state.chat_history = []
 if "gemini_files" not in st.session_state:
-    st.session_state.gemini_files = [] # 存储文件引用
+    st.session_state.gemini_files = []
+if "banned_words" not in st.session_state:
+    st.session_state.banned_words = set()
 
-# ================= 侧边栏：控制中心 =================
+# ================= 核心逻辑：合规性检查 (硬逻辑) =================
+@st.cache_resource
+def load_banned_words():
+    """读取本地的极限词清单文件，构建违禁词库"""
+    banned_set = set()
+    try:
+        # 尝试读取同目录下的 banned_words.txt
+        # 如果文件里是逗号分隔的字符串，如 '第一', '销量王'
+        with open("RPA_极限词清单(1).txt", "r", encoding='utf-8') as f:
+            content = f.read()
+            # 使用正则清洗数据：去掉引号、方括号、换行，只留纯文本
+            # 假设文件内容格式比较杂乱，我们统一按逗号或换行分割
+            raw_words = re.split(r"[,\n\s']+", content)
+            for w in raw_words:
+                clean_w = w.strip('"').strip("'").strip()
+                if len(clean_w) > 1: # 忽略单个字的误杀
+                    banned_set.add(clean_w)
+        return banned_set
+    except FileNotFoundError:
+        return set()
+
+def compliance_check(text, banned_set):
+    """
+    合规扫描器：
+    如果发现违规词，将其替换为醒目的红色警示文本。
+    """
+    if not banned_set:
+        return text, False
+    
+    found_issues = False
+    checked_text = text
+    
+    # 遍历所有违禁词 (为了性能，实际生产环境可用 AC 自动机算法优化，这里用循环足够演示)
+    for bad_word in banned_set:
+        if bad_word in checked_text:
+            found_issues = True
+            # 使用 Streamlit 的红色高亮语法替换违规词
+            replacement = f":red[**🚫{bad_word}**]" 
+            checked_text = checked_text.replace(bad_word, replacement)
+            
+    return checked_text, found_issues
+
+# 加载违禁词到内存
+st.session_state.banned_words = load_banned_words()
+
+# ================= 侧边栏 =================
 with st.sidebar:
     st.image("https://upload.wikimedia.org/wikipedia/commons/thumb/3/3b/Burton_Snowboards_logo.svg/2560px-Burton_Snowboards_logo.svg.png", width=150)
     st.title("⚙️ 控制台")
@@ -32,67 +80,52 @@ with st.sidebar:
     else:
         st.error(api_status)
     
+    # 显示合规库状态
+    if st.session_state.banned_words:
+        st.info(f"🛡️ 合规护盾已开启\n已加载 {len(st.session_state.banned_words)} 个电商极限词")
+    else:
+        st.warning("⚠️ 未检测到极限词清单文件，合规检查未激活")
+
     st.divider()
 
-    # 模型选择
     model_choice = st.radio(
         "🧠 大脑引擎:",
-        ("⚡ 极速模式 (Flash)", "🐢 深度思考 (Pro)"),
+        ("⚡ 极速模式 (Gemini 3 Flash)", "🐢 深度思考 (Gemini 3 Pro)"),
         index=0
     )
     selected_model_name = "gemini-3-flash-preview" if "Flash" in model_choice else "gemini-3-pro-preview"
 
     st.divider()
 
-    # --- 🆕 新功能：接待下一位 (清空记忆) ---
-    st.markdown("### 🧹 场景切换")
     if st.button("接待新客户 (清空记忆)", type="primary", use_container_width=True):
-        st.session_state.chat_history = [] # 清空历史
-        st.rerun() # 强制刷新页面
-    st.caption("💡 提示：每当切换不同的客户咨询时，请点击此按钮防止信息混淆。")
+        st.session_state.chat_history = []
+        st.rerun()
+    st.caption("💡 提示：切换客户时请点击此按钮。")
 
-# ================= 核心逻辑：文件上传与清洗 =================
+# ================= 核心逻辑：文件上传 =================
 @st.cache_resource
 def process_uploaded_file(uploaded_file):
-    """
-    智能处理文件：
-    1. Excel -> 自动转换为 Markdown 表格文本 (极度节省Token且精准)
-    2. Markdown -> 直接上传
-    """
     file_ext = uploaded_file.name.split('.')[-1].lower()
     tmp_path = ""
     mime_type = "text/plain"
 
     try:
-        # --- A. 处理 Excel 文件 ---
         if file_ext in ['xlsx', 'xls']:
-            # 使用 Pandas 读取 Excel
             df = pd.read_excel(uploaded_file)
-            # 转换为 Markdown 格式字符串
             text_content = df.to_markdown(index=False)
-            # 添加文件头信息
             final_content = f"# 数据来源: {uploaded_file.name}\n\n{text_content}"
-            
-            # 写入临时文件
             with tempfile.NamedTemporaryFile(delete=False, suffix='.txt', mode='w', encoding='utf-8') as tmp_file:
                 tmp_file.write(final_content)
                 tmp_path = tmp_file.name
-                
-        # --- B. 处理 Markdown 文件 ---
         elif file_ext == 'md':
             with tempfile.NamedTemporaryFile(delete=False, suffix='.md', mode='wb') as tmp_file:
                 tmp_file.write(uploaded_file.getvalue())
                 tmp_path = tmp_file.name
                 mime_type = "text/md"
-        
         else:
-            # 兜底逻辑 (理论上前端限制了类型，不会走到这)
             return None
 
-        # --- 上传至 Gemini ---
         file_ref = genai.upload_file(path=tmp_path, mime_type=mime_type, display_name=uploaded_file.name)
-        
-        # 等待处理完成
         while file_ref.state.name == "PROCESSING":
             import time
             time.sleep(1)
@@ -103,111 +136,87 @@ def process_uploaded_file(uploaded_file):
         st.error(f"文件处理错误: {e}")
         return None
     finally:
-        # 清理临时文件
         if tmp_path and os.path.exists(tmp_path):
             os.remove(tmp_path)
 
-# ================= 核心逻辑：文件上传 =================
-# 使用 cache_resource 防止每次点击都重新加载函数
-@st.cache_resource
-def process_uploaded_file(uploaded_file):
-    """处理上传文件并返回 Gemini 文件对象"""
-    with tempfile.NamedTemporaryFile(delete=False, suffix='.' + uploaded_file.name.split('.')[-1]) as tmp_file:
-        tmp_file.write(uploaded_file.getvalue())
-        tmp_path = tmp_file.name
-    try:
-        file_ref = genai.upload_file(path=tmp_path, display_name=uploaded_file.name)
-        # 等待处理完成
-        while file_ref.state.name == "PROCESSING":
-            import time
-            time.sleep(1)
-            file_ref = genai.get_file(file_ref.name)
-        return file_ref
-    finally:
-        os.remove(tmp_path)
-
-# ================= 主界面布局 =================
+# ================= 主界面 =================
 st.title("🏂 Burton China CS CO-Pilot")
-st.caption("🚀 Powered by YZ-Shield | Native RAG Technology")
+st.caption("🚀 Powered by YZ-Shield | Native RAG | 🛡️ Ad-Law Compliance Guard")
 st.divider()
 
 col1, col2 = st.columns([1, 2])
 
-# --- 左侧：知识库 (上传一次即可) ---
+# --- 左侧：知识库 ---
 with col1:
     st.subheader("📂 知识库状态")
-    # 3. 修改文件过滤器：只允许 Excel 和 Markdown
     uploaded_files = st.file_uploader(
         "上传资料 (Excel/Markdown)", 
         type=['xlsx', 'xls', 'md'], 
         accept_multiple_files=True, 
         label_visibility="collapsed"
     )
+    
     if uploaded_files and api_key:
-        # 只有当文件列表为空，或者用户上传了新文件时才处理
-        # 这里做一个简单的去重检查，防止页面刷新导致的重复上传
         if not st.session_state.gemini_files: 
-            if st.button("🔌 激活知识库", type="secondary", use_container_width=True):
+            if st.button("🔌 激活并清洗数据", type="secondary", use_container_width=True):
                 progress_bar = st.progress(0)
                 for i, up_file in enumerate(uploaded_files):
-                    file_ref = process_uploaded_file(up_file) # 使用缓存函数
-                    st.session_state.gemini_files.append(file_ref)
+                    file_ref = process_uploaded_file(up_file) 
+                    if file_ref:
+                        st.session_state.gemini_files.append(file_ref)
                     progress_bar.progress((i + 1) / len(uploaded_files))
-                st.success(f"✅ {len(uploaded_files)} 份文档已挂载！")
+                st.success(f"✅ {len(st.session_state.gemini_files)} 份结构化数据已挂载！")
                 st.rerun()
 
-    # 显示当前挂载的文件
     if st.session_state.gemini_files:
-        with st.expander("📚 当前生效的文档", expanded=True):
+        with st.expander("📚 当前生效的数据表", expanded=True):
             for f in st.session_state.gemini_files:
-                st.text(f"📄 {f.display_name}")
-            st.caption("✅ 机器人已记住这些内容，直到您刷新页面。")
+                st.text(f"📊 {f.display_name}")
 
-# --- 右侧：多轮对话工作台 ---
+# --- 右侧：对话工作台 ---
 with col2:
     st.subheader("💬 对话工作台")
 
-    # 1. 显示历史对话 (让客服看到上下文)
-    # 我们只显示最近的几轮，避免太长
     if st.session_state.chat_history:
         with st.expander("🕒 历史对话记录", expanded=False):
-            for role, text in st.session_state.chat_history:
+            for role, text in st.session_state.chat_history[-6:]:
                 if role == "user":
                     st.markdown(f"**客户**: {text}")
                 else:
-                    st.markdown(f"**Burton助手**: *[已生成建议]*")
+                    # 历史记录也要做合规渲染
+                    safe_text, _ = compliance_check(text, st.session_state.banned_words)
+                    st.markdown(f"**Burton助手**: {safe_text}")
 
-    # 2. 核心 Prompt (包含记忆逻辑)
+    # 核心 Prompt (加入合规指令)
     system_instruction = """
     你不是直接面对消费者的聊天机器人，你是 **Burton China 客服团队的智能副驾 (CS Copilot)**。
-    你的目标是辅助客服人员（User），基于用户上传的文件，提供精准的产品参数、价格核验、销售话术和关联推荐。
+    你的知识库由【Excel表格】和【Markdown文档】组成，数据非常精准。
     
-    # 核心原则 (必须严格遵守)
-    1. **原生理解与记忆**：你拥有阅读整份文档的能力，并且**记得**我们刚才聊过的内容（如客户的体重、偏好）。请结合上下文回答。
-    2. **价格核验与高亮**：
-       - 涉及价格时，必须在文档中找到视觉锚点（如表格行、列标题）确认。
-       - **强制高亮格式**：输出价格时，必须使用 Streamlit 颜色语法 `:orange[**¥价格**]`。例如：:orange[**¥4298**]。
-       - 如果无法100%确定，请标注"(需人工核对)"。
-    3. **硬性销售逻辑 (Critical)**：
-       - **选板必问体重**：当客户咨询雪板时，如果【当前问题】和【历史对话】中都没有包含**体重**和**鞋码**，建议回复话术的**最后一句必须是反问句**，索要这些信息。
-       - **Step On必问鞋码**：推荐固定器时，必须核对鞋码。
-    4. **输出格式**：请严格按照 Markdown 格式输出【控制台视图】。
+    # 核心原则 (Critical)
+    1. **合规第一 (Compliance)**：作为电商客服，严禁使用中国广告法禁止的极限词（如：第一、最强、顶级、首选、全网独家等）。如果文档里有这些词，**请在回复时自动替换为合规说法**（如"热销"、"优选"）。
+    2. **精准查询**：查询价格、参数时，必须严格对应表格数据。
+    3. **价格高亮**：使用 `:orange[**¥价格**]` 格式。
+    4. **硬性销售逻辑**：
+       - **选板必问体重**。
+       - **Step On必问鞋码**。
+    5. **输出格式**：请严格按照 Markdown 格式输出【控制台视图】。
 
     # 输出视图结构
     ---
     ### 1️⃣ 🧠 客户画像分析
-    * **客户类型**: [结合历史对话判断]
-    * **关键缺项**: [⚠️ 高亮显示缺失信息]
+    * **客户类型**: 
+    * **关键缺项**: [⚠️ 高亮显示]
     * **情绪指数**: [⭐⭐⭐⭐⭐]
 
     ### 2️⃣ 📚 核心知识胶囊
     * **推荐产品**: 
-    * **参考价格**: :orange[**¥xxxx**] (源自 PDF P.xx)
+    * **参考价格**: :orange[**¥xxxx**] (数据来源: [文件名])
+    * **核心科技**: 
     * **技术解释**: 
 
     ### 3️⃣ 💬 建议回复话术
     > **请复制以下内容发送给客户：**
-    > "[建议回复内容。策略：1. 承接上一轮对话 2. 解答当前问题 3. **如果信息缺失，必须反问**]"
+    > "[建议回复内容。**注意：请确保话术不包含任何广告法极限词**。]"
 
     ### 4️⃣ 🎯 关联销售机会
     * **推荐搭配**: 
@@ -215,49 +224,45 @@ with col2:
     ---
     """
 
-    # 3. 输入框 (使用 form 防止回车自动提交，增加稳定性)
     with st.form(key="chat_form", clear_on_submit=True):
-        user_query = st.text_area("在此粘贴客户咨询内容：", height=100, placeholder="例如：我想买个板子... (按Ctrl+Enter发送)")
+        user_query = st.text_area("在此粘贴客户咨询内容：", height=100, placeholder="例如：这款板子是不是全网第一？ (按Ctrl+Enter发送)")
         submit_button = st.form_submit_button("✨ 发送 / 生成建议")
 
-    # 4. 处理逻辑
     if submit_button and user_query:
         if not api_key or not st.session_state.gemini_files:
-            st.error("请先配置 API Key 并激活知识库")
+            st.error("请先配置 API Key 并上传 Excel/Markdown 数据")
         else:
             try:
-                # 构造 ChatSession (带记忆的对话)
                 model = genai.GenerativeModel(
                     model_name=selected_model_name,
                     system_instruction=system_instruction
                 )
                 
-                # 手动构建 history 列表传给 Gemini
-                # Gemini 的 history 格式是 [{'role': 'user', 'parts': [...]}, {'role': 'model', 'parts': [...]}]
                 gemini_history = []
-                for role, text in st.session_state.chat_history:
+                for role, text in st.session_state.chat_history[-6:]:
                     gemini_role = "user" if role == "user" else "model"
                     gemini_history.append({"role": gemini_role, "parts": [text]})
 
-                # 启动聊天会话 (带上文件 + 历史)
-                # 注意：文件只需要在 system instruction 或者第一次消息里给，
-                # 但为了简单，我们把文件作为本次请求的一部分，Gemini 会自动处理 context
-                
                 chat = model.start_chat(history=gemini_history)
                 
-                with st.spinner("🤖 正在结合上下文思考..."):
-                    # 发送包含文件的请求 (Gemini API 支持 list 包含 file 和 text)
+                with st.spinner(f"🤖 正在调用 {selected_model_name} 分析 (含合规审查)..."):
                     response = chat.send_message(st.session_state.gemini_files + [user_query])
                     
-                    # 显示结果
-                    st.markdown(response.text)
+                    # --- 🛡️ 核心：执行合规扫描 ---
+                    final_text, has_issues = compliance_check(response.text, st.session_state.banned_words)
                     
-                    # 更新历史 (存入 session state)
+                    if has_issues:
+                        st.toast("⚠️ 警告：回复中检测到广告法敏感词，已自动标红，请人工修改后再发送！", icon="🚨")
+                    
+                    st.markdown(final_text)
+                    
+                    # 存入历史的是原始文本(以便模型理解上下文)，还是处理后的文本？
+                    # 建议存原始文本给模型(防止模型被干扰)，但展示给用户看处理后的。
+                    # 这里简化处理，存原始文本。
                     st.session_state.chat_history.append(("user", user_query))
                     st.session_state.chat_history.append(("assistant", response.text))
                     
             except Exception as e:
                 st.error(f"生成失败: {e}")
                 if "404" in str(e):
-                    st.warning("提示：请检查所选模型是否可用，尝试切换回 Pro 模式。")
-
+                    st.warning("提示：请检查您的 API Key 是否支持 Gemini 3 Preview 模型。")
