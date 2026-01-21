@@ -156,7 +156,7 @@ with st.sidebar:
 
 # ================= 主界面 =================
 st.title("🏂 Burton China CS CO-Pilot")
-st.caption("🚀 Powered by YZ-Shield | Native RAG | 🛡️ Ad-Law Auto-Shield")
+st.caption("🚀 Powered by YZ-Shield | Native RAG | 🛡️极限词过滤")
 # 移除了文件上传区域，直接进入对话界面
 st.divider() 
 
@@ -258,3 +258,4 @@ if user_query:
             st.error(f"生成失败: {e}")
             if "404" in str(e):
                 st.warning("提示：请检查 API Key 是否支持 Gemini 3 Preview 模型。")
+
