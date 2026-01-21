@@ -24,13 +24,13 @@ if "gemini_files" not in st.session_state:
 if "banned_words" not in st.session_state:
     st.session_state.banned_words = set()
 
-# ================= 核心逻辑：合规性检查 (硬逻辑) =================
+# ================= 核心逻辑：强力合规屏蔽 (Hard Shield) =================
 @st.cache_resource
 def load_banned_words():
     """读取本地的极限词清单文件"""
     banned_set = set()
     try:
-        filenames = ["banned_words.txt", "banned_words.txt"]
+        filenames = ["RPA_极限词清单(1).txt", "banned_words.txt"]
         target_file = None
         for fn in filenames:
             if os.path.exists(fn):
@@ -40,17 +40,21 @@ def load_banned_words():
         if target_file:
             with open(target_file, "r", encoding='utf-8') as f:
                 content = f.read()
+                # 兼容逗号、换行符等多种分割方式
                 raw_words = re.split(r"[,\n\s']+", content)
                 for w in raw_words:
                     clean_w = w.strip('"').strip("'").strip()
-                    if len(clean_w) > 1:
+                    if len(clean_w) > 1: # 忽略单个字，防止误杀
                         banned_set.add(clean_w)
         return banned_set
     except Exception:
         return set()
 
-def compliance_check(text, banned_set):
-    """合规扫描器"""
+def compliance_shield(text, banned_set):
+    """
+    合规屏蔽器：
+    直接将敏感词替换为 '**'，彻底杜绝发送风险。
+    """
     if not banned_set:
         return text, False
     
@@ -60,7 +64,8 @@ def compliance_check(text, banned_set):
     for bad_word in banned_set:
         if bad_word in checked_text:
             found_issues = True
-            replacement = f":red[**🚫{bad_word}**]" 
+            # 🔴 修改点：直接替换为星号，实现“屏蔽”效果
+            replacement = "**" 
             checked_text = checked_text.replace(bad_word, replacement)
             
     return checked_text, found_issues
@@ -79,9 +84,9 @@ with st.sidebar:
         st.error(api_status)
     
     if st.session_state.banned_words:
-        st.info(f"🛡️ 合规护盾已开启\n已加载 {len(st.session_state.banned_words)} 个电商极限词")
+        st.info(f"🛡️ 广告法护盾已开启\n已加载 {len(st.session_state.banned_words)} 个敏感词\n(违规词将自动替换为 **)")
     else:
-        st.warning("⚠️ 未检测到极限词清单文件，合规检查未激活")
+        st.warning("⚠️ 未检测到极限词清单，护盾未激活")
 
     st.divider()
 
@@ -105,7 +110,7 @@ def process_uploaded_file(uploaded_file):
     file_ext = uploaded_file.name.split('.')[-1].lower()
     tmp_path = ""
     
-    # 强制将Markdown作为纯文本处理，兼容性最好
+    # 强制将Markdown作为纯文本处理
     mime_type = "text/plain" 
 
     try:
@@ -135,7 +140,7 @@ def process_uploaded_file(uploaded_file):
 
 # ================= 主界面 =================
 st.title("🏂 Burton China CS CO-Pilot")
-st.caption("🚀 Powered by YZ-Shield | Native RAG | 🛡️ Ad-Law Compliance Guard")
+st.caption("🚀 Powered by YZ-Shield | Native RAG | 🛡️ Ad-Law Auto-Shield")
 st.divider()
 
 col1, col2 = st.columns([1, 2])
@@ -177,16 +182,18 @@ with col2:
                 if role == "user":
                     st.markdown(f"**客户**: {text}")
                 else:
-                    safe_text, _ = compliance_check(text, st.session_state.banned_words)
+                    # 历史记录也进行屏蔽处理
+                    safe_text, _ = compliance_shield(text, st.session_state.banned_words)
                     st.markdown(f"**Burton助手**: {safe_text}")
 
-    # 核心 Prompt
+    # 核心 Prompt (双重保险：让AI自己先替换一遍)
     system_instruction = """
     你不是直接面对消费者的聊天机器人，你是 **Burton China 客服团队的智能副驾 (CS Copilot)**。
     你的知识库由【Markdown文档】组成，结构清晰，数据非常精准。
     
     # 核心原则 (Critical)
-    1. **合规第一 (Compliance)**：作为电商客服，严禁使用中国广告法禁止的极限词（如：第一、最强、顶级、首选、全网独家等）。如果文档里有这些词，**请在回复时自动替换为合规说法**（如"热销"、"优选"）。
+    1. **合规第一 (Compliance)**：严禁使用中国广告法禁止的极限词（如：第一、最强、顶级、首选、全网独家、极致等）。
+       - **执行策略**：如果文档里有这些词，**请在回复时自动替换为合规的同义词**（例如：将"全网第一"改为"非常热销"，将"顶级"改为"高端"）。不要输出违规词。
     2. **精准查询**：查询价格、参数时，必须严格对应文档中的表格数据。
     3. **价格高亮**：使用 `:orange[**¥价格**]` 格式。
     4. **硬性销售逻辑**：
@@ -209,7 +216,7 @@ with col2:
 
     ### 3️⃣ 💬 建议回复话术
     > **请复制以下内容发送给客户：**
-    > "[建议回复内容。**注意：请确保话术不包含任何广告法极限词**。]"
+    > "[建议回复内容。**确保已替换所有广告法极限词**。]"
 
     ### 4️⃣ 🎯 关联销售机会
     * **推荐搭配**: 
@@ -238,13 +245,14 @@ with col2:
 
                 chat = model.start_chat(history=gemini_history)
                 
-                with st.spinner(f"🤖 正在调用 {selected_model_name} 分析 (含合规审查)..."):
+                with st.spinner(f"🤖 正在调用 {selected_model_name} 分析 (含合规过滤)..."):
                     response = chat.send_message(st.session_state.gemini_files + [user_query])
                     
-                    final_text, has_issues = compliance_check(response.text, st.session_state.banned_words)
+                    # --- 🛡️ 执行强力屏蔽 ---
+                    final_text, has_issues = compliance_shield(response.text, st.session_state.banned_words)
                     
                     if has_issues:
-                        st.toast("⚠️ 警告：回复中检测到广告法敏感词，已自动标红，请人工修改后再发送！", icon="🚨")
+                        st.toast("🛡️ 已自动屏蔽部分敏感词 (已替换为 ** )，请放心复制。", icon="✅")
                     
                     st.markdown(final_text)
                     
