@@ -33,7 +33,7 @@ def load_banned_words():
     try:
         # 尝试读取同目录下的 banned_words.txt
         # 如果文件里是逗号分隔的字符串，如 '第一', '销量王'
-        with open("RPA_极限词清单(1).txt", "r", encoding='utf-8') as f:
+        with open("banned_words.txt", "r", encoding='utf-8') as f:
             content = f.read()
             # 使用正则清洗数据：去掉引号、方括号、换行，只留纯文本
             # 假设文件内容格式比较杂乱，我们统一按逗号或换行分割
@@ -266,3 +266,4 @@ with col2:
                 st.error(f"生成失败: {e}")
                 if "404" in str(e):
                     st.warning("提示：请检查您的 API Key 是否支持 Gemini 3 Preview 模型。")
+
