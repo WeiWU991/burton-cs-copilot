@@ -52,64 +52,48 @@ def load_banned_words():
     return banned_set
 
 def highlight_banned_words(text, banned_set):
-    """【内控模式】标红敏感词，用于警示客服"""
+    """【内控模式】标红敏感词"""
     if not banned_set: return text, False
     found = False
     for word in banned_set:
         if word in text:
             found = True
-            # Streamlit 红色高亮语法
             text = text.replace(word, f":red[**🚫{word}**]")
     return text, found
 
 def shield_banned_words(text, banned_set):
-    """【外发模式】直接替换敏感词，用于安全复制"""
+    """【外发模式】直接替换敏感词"""
     if not banned_set: return text, False
     found = False
     for word in banned_set:
         if word in text:
             found = True
-            # 直接替换为星号，或者用“[合规屏蔽]”
             text = text.replace(word, "**") 
     return text, found
 
 def smart_compliance_filter(full_response, banned_set):
-    """
-    【智能分层过滤】
-    1. 解析 Markdown 结构。
-    2. 对 '建议回复话术' 板块使用屏蔽模式。
-    3. 对 其他板块（分析、画像）使用高亮模式。
-    """
+    """【智能分层过滤】"""
     if not banned_set: return full_response, False
     
-    # 核心锚点：Prompt 中定义的标题
     REPLY_SECTION_HEADER = "### 3️⃣ 💬 建议回复话术"
     NEXT_SECTION_HEADER = "### 4️⃣" 
     
-    # 尝试切分文本
     parts = full_response.split(REPLY_SECTION_HEADER)
     
-    # 如果找不到结构（比如模型没按格式输出），则全量标红保底
     if len(parts) < 2:
         return highlight_banned_words(full_response, banned_set)
     
-    # part_before: 画像分析、知识胶囊 (给客服看 -> 标红)
     part_before = parts[0]
-    
-    # rest: 建议回复 + 关联销售
     rest = parts[1]
     
-    # 继续切分出 "回复内容" 和 "关联销售"
     sub_parts = rest.split(NEXT_SECTION_HEADER)
-    reply_content = sub_parts[0] # 这是要复制给客户的 -> 屏蔽
-    part_after = NEXT_SECTION_HEADER + sub_parts[1] if len(sub_parts) > 1 else "" # 关联销售 -> 标红
+    reply_content = sub_parts[0]
+    part_after = NEXT_SECTION_HEADER + sub_parts[1] if len(sub_parts) > 1 else ""
     
-    # --- 执行过滤 ---
     safe_before, issue1 = highlight_banned_words(part_before, banned_set)
-    safe_reply, issue2 = shield_banned_words(reply_content, banned_set) # <--- 关键：这里是屏蔽
+    safe_reply, issue2 = shield_banned_words(reply_content, banned_set)
     safe_after, issue3 = highlight_banned_words(part_after, banned_set)
     
-    # 重新组装
     final_text = safe_before + REPLY_SECTION_HEADER + safe_reply + safe_after
     has_issues = issue1 or issue2 or issue3
     
@@ -125,7 +109,7 @@ def load_knowledge_base_files():
     md_files = glob.glob(os.path.join(KB_FOLDER, "*.md"))
     
     # 打印后台日志
-    print(f"📚 [Load] Found {len(md_files)} markdown files")
+    print(f"📚 [Load] Found {len(md_files)} markdown files", flush=True)
     
     for file_path in md_files:
         try:
@@ -135,9 +119,9 @@ def load_knowledge_base_files():
                 time.sleep(1)
                 file_ref = genai.get_file(file_ref.name)
             uploaded_refs.append(file_ref)
-            print(f"✅ Loaded: {file_name}")
+            print(f"✅ Loaded: {file_name}", flush=True)
         except Exception as e:
-            print(f"❌ Failed: {file_path} - {e}")
+            print(f"❌ Failed: {file_path} - {e}", flush=True)
     return uploaded_refs
 
 # --- 系统初始化 ---
@@ -190,7 +174,7 @@ with st.sidebar:
 
 # ================= 主界面 =================
 st.title("🏂 Burton China CS CO-Pilot")
-st.caption("🚀 Powered by YZ-Shield | Native RAG | 🛡️ 极限词保护")
+st.caption("🚀 Powered by YZ-Shield | Native RAG | 🛡️极限词过滤")
 st.divider() 
 
 # --- 对话工作台 ---
@@ -201,11 +185,10 @@ if st.session_state.chat_history:
                 st.write(text)
         else:
             with st.chat_message("assistant", avatar="🏂"):
-                # 历史记录使用智能过滤展示
                 safe_text, _ = smart_compliance_filter(text, st.session_state.banned_words)
                 st.markdown(safe_text)
 
-# 核心 Prompt (强调结构，便于Python分割)
+# 核心 Prompt
 system_instruction = """
 你不是直接面对消费者的聊天机器人，你是 **Burton China 客服团队的智能副驾 (CS Copilot)**。
 你的知识库已经由管理员预置（Markdown文档），数据精准且权威。
@@ -248,9 +231,9 @@ if user_query:
     elif not st.session_state.gemini_files:
         st.error(f"⚠️ 知识库未加载，请确保 {KB_FOLDER} 文件夹内有 .md 文件并重启 App。")
     else:
-        # 1. 记录日志
+        # 1. 记录提问日志
         timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        print(f"📝 [新提问] {timestamp} | 问题: {user_query}", flush=True)
+        print(f"\n📝 [新提问] {timestamp}\n👤 客服: {user_query}", flush=True)
 
         with st.chat_message("user", avatar="👤"):
             st.write(user_query)
@@ -272,23 +255,23 @@ if user_query:
                 with st.spinner("🤖 YZ-Shield 正在检索企业知识库..."):
                     response = chat.send_message(st.session_state.gemini_files + [user_query])
                     
-                    # --- 执行智能分层过滤 ---
-                    final_text, has_issues = smart_compliance_filter(response.text, st.session_state.banned_words)
+                    # 智能分层过滤 (用于前端展示)
+                    final_text_display, has_issues = smart_compliance_filter(response.text, st.session_state.banned_words)
                     
-                    st.markdown(final_text)
+                    st.markdown(final_text_display)
                     
                     if has_issues:
                         st.toast("🛡️ 已执行合规处理：内部分析标红，外发话术已屏蔽。", icon="✅")
+                    
+                    # 2. 记录回答日志 (新增功能)
+                    # 为了日志整洁，我们在日志里也记录处理过(已屏蔽)的版本，或者您可以选择 response.text 记录原始内容
+                    print(f"🤖 AI回复: \n{final_text_display}\n" + "-"*50, flush=True)
             
-            # 保存原始文本供AI记忆，保存处理后的文本供展示？
-            # 简化起见，我们保存原始文本，每次展示时重新过滤。
             st.session_state.chat_history.append(("user", user_query))
             st.session_state.chat_history.append(("assistant", response.text))
                 
         except Exception as e:
             st.error(f"生成失败: {e}")
-            print(f"❌ [生成错误] {e}")
+            print(f"❌ [生成错误] {e}", flush=True)
             if "404" in str(e):
                 st.warning("提示：请检查 API Key 是否支持 Gemini 3 Preview 模型。")
-
-
