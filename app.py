@@ -250,7 +250,7 @@ if user_query:
     else:
         # 1. 记录日志
         timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        print(f"📝 [新提问] {timestamp} | 问题: {user_query}")
+        print(f"📝 [新提问] {timestamp} | 问题: {user_query}", flush=True)
 
         with st.chat_message("user", avatar="👤"):
             st.write(user_query)
@@ -290,4 +290,5 @@ if user_query:
             print(f"❌ [生成错误] {e}")
             if "404" in str(e):
                 st.warning("提示：请检查 API Key 是否支持 Gemini 3 Preview 模型。")
+
 
