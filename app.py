@@ -31,7 +31,36 @@ if "banned_words" not in st.session_state:
 if "kb_loaded" not in st.session_state:
     st.session_state.kb_loaded = False
 
-# ================= 核心逻辑：智能合规过滤 =================
+# ================= 核心逻辑：智能合规过滤 (Smart Shield) =================
+
+# 🔴 新增：高频极限词的“安全替身”字典
+# 既然 AI 偶尔会漏网，我们就用代码帮它圆场，保证语句通顺
+SMART_SYNONYMS = {
+    "第一": "排名前列",
+    "NO.1": "人气热销",
+    "Top1": "人气热销",
+    "冠军": "人气优选",
+    "首选": "优选",
+    "顶级": "高端",
+    "顶尖": "高端",
+    "极致": "出色",
+    "极佳": "出色",
+    "完美": "理想",
+    "绝佳": "非常棒",
+    "独家": "特色",
+    "独有": "特有",
+    "最强": "强力",
+    "最好": "很好",
+    "最大": "很大",
+    "最高": "很高",
+    "最低": "超值",
+    "全网": "全渠道",
+    "世界级": "高水准",
+    "史无前例": "难得一见",
+    "永久": "长久",
+    "百分之百": "致力于",
+    "必": "建议",
+}
 
 @st.cache_resource
 def load_banned_words():
@@ -52,23 +81,36 @@ def load_banned_words():
     return banned_set
 
 def highlight_banned_words(text, banned_set):
-    """【内控模式】标红敏感词"""
+    """【内控模式】标红敏感词，并显示建议替换词（如果有）"""
     if not banned_set: return text, False
     found = False
     for word in banned_set:
         if word in text:
             found = True
-            text = text.replace(word, f":red[**🚫{word}**]")
+            # 如果有建议替换词，显示在旁边
+            suggestion = f" 💡建议改:{SMART_SYNONYMS[word]}" if word in SMART_SYNONYMS else ""
+            text = text.replace(word, f":red[**🚫{word}**]{suggestion}")
     return text, found
 
 def shield_banned_words(text, banned_set):
-    """【外发模式】直接替换敏感词"""
+    """
+    【外发模式】智能替换
+    1. 优先查找 SMART_SYNONYMS 进行“软替换”（保持通顺）。
+    2. 找不到替换词，则使用 [合规屏蔽] 进行“硬屏蔽”。
+    """
     if not banned_set: return text, False
     found = False
     for word in banned_set:
         if word in text:
             found = True
-            text = text.replace(word, "**") 
+            if word in SMART_SYNONYMS:
+                # 方案 A：使用同义词替换
+                replacement = SMART_SYNONYMS[word]
+            else:
+                # 方案 B：使用占位符 (比 ** 更清晰)
+                replacement = "" # 或者用 "[热销]" 这种万能词，这里留空或用空格可能更自然
+            
+            text = text.replace(word, replacement)
     return text, found
 
 def smart_compliance_filter(full_response, banned_set):
@@ -90,8 +132,11 @@ def smart_compliance_filter(full_response, banned_set):
     reply_content = sub_parts[0]
     part_after = NEXT_SECTION_HEADER + sub_parts[1] if len(sub_parts) > 1 else ""
     
+    # 1. 前段（分析）：标红
     safe_before, issue1 = highlight_banned_words(part_before, banned_set)
+    # 2. 中段（话术）：智能替换
     safe_reply, issue2 = shield_banned_words(reply_content, banned_set)
+    # 3. 后段（关联）：标红
     safe_after, issue3 = highlight_banned_words(part_after, banned_set)
     
     final_text = safe_before + REPLY_SECTION_HEADER + safe_reply + safe_after
@@ -108,7 +153,6 @@ def load_knowledge_base_files():
         return []
     md_files = glob.glob(os.path.join(KB_FOLDER, "*.md"))
     
-    # 打印后台日志
     print(f"📚 [Load] Found {len(md_files)} markdown files", flush=True)
     
     for file_path in md_files:
@@ -150,10 +194,10 @@ with st.sidebar:
     else:
         st.warning(f"⚠️ 文件夹 {KB_FOLDER} 为空")
 
-    st.caption("🛡️ 合规护盾")
+    st.caption("🛡️ 合规护盾 (智能替换版)")
     if st.session_state.banned_words:
-        st.success(f"✅ 智能激活 ({len(st.session_state.banned_words)} 词条)")
-        st.info("👀 画像分析区：高亮敏感词\n📋 话术复制区：自动屏蔽")
+        st.success(f"✅ 已激活 ({len(st.session_state.banned_words)} 词条)")
+        st.info("👀 分析区：标红 + 修改建议\n📋 复制区：自动替换为合规词")
     else:
         st.warning("⚠️ 未激活")
 
@@ -174,7 +218,7 @@ with st.sidebar:
 
 # ================= 主界面 =================
 st.title("🏂 Burton China CS CO-Pilot")
-st.caption("🚀 Powered by YZ-Shield | Native RAG | 🛡️极限词过滤")
+st.caption("🚀 Powered by YZ-Shield | Native RAG | 🛡️极限词保护")
 st.divider() 
 
 # --- 对话工作台 ---
@@ -188,17 +232,23 @@ if st.session_state.chat_history:
                 safe_text, _ = smart_compliance_filter(text, st.session_state.banned_words)
                 st.markdown(safe_text)
 
-# 核心 Prompt
+# 核心 Prompt (明确要求使用合规词汇)
 system_instruction = """
 你不是直接面对消费者的聊天机器人，你是 **Burton China 客服团队的智能副驾 (CS Copilot)**。
 你的知识库已经由管理员预置（Markdown文档），数据精准且权威。
 
 # 核心原则 (Critical)
-1. **合规第一**：严禁使用中国广告法禁止的极限词（如：第一、最强、顶级、首选、全网独家）。如果文档里有这些词，**尽量在回复时替换为合规同义词**。
+1. **合规第一 (Compliance)**：
+   - 严禁使用中国广告法禁止的极限词（如：第一、最强、顶级、首选、全网独家、极致、完美）。
+   - **强制替换规则**：请在生成内容时，直接将这些词替换为合规说法。
+     - "顶级" -> "高端"
+     - "第一" -> "热销" / "排名前列"
+     - "极致" -> "出色"
+     - "完美" -> "理想"
 2. **精准查询**：查询价格、参数时，必须严格对应文档中的表格数据。
 3. **价格高亮**：使用 `:orange[**¥价格**]` 格式。
 4. **硬性销售逻辑**：选板必问体重；Step On必问鞋码。
-5. **格式严格**：必须严格遵守下面的 Markdown 结构，标题不可更改。
+5. **输出格式**：请严格按照 Markdown 格式输出【控制台视图】。
 
 # 输出视图结构
 ---
@@ -215,7 +265,7 @@ system_instruction = """
 
 ### 3️⃣ 💬 建议回复话术
 > **请复制以下内容发送给客户：**
-> "[建议回复内容。请确保语气亲切，并**尝试**避免极限词。]"
+> "[建议回复内容。语气亲切，严禁出现极限词。]"
 
 ### 4️⃣ 🎯 关联销售机会
 * **推荐搭配**: 
@@ -231,7 +281,6 @@ if user_query:
     elif not st.session_state.gemini_files:
         st.error(f"⚠️ 知识库未加载，请确保 {KB_FOLDER} 文件夹内有 .md 文件并重启 App。")
     else:
-        # 1. 记录提问日志
         timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         print(f"\n📝 [新提问] {timestamp}\n👤 客服: {user_query}", flush=True)
 
@@ -255,16 +304,14 @@ if user_query:
                 with st.spinner("🤖 YZ-Shield 正在检索企业知识库..."):
                     response = chat.send_message(st.session_state.gemini_files + [user_query])
                     
-                    # 智能分层过滤 (用于前端展示)
+                    # 智能分层过滤
                     final_text_display, has_issues = smart_compliance_filter(response.text, st.session_state.banned_words)
                     
                     st.markdown(final_text_display)
                     
                     if has_issues:
-                        st.toast("🛡️ 已执行合规处理：内部分析标红，外发话术已屏蔽。", icon="✅")
+                        st.toast("🛡️ 已将部分极限词替换为合规说法，可直接复制。", icon="✅")
                     
-                    # 2. 记录回答日志 (新增功能)
-                    # 为了日志整洁，我们在日志里也记录处理过(已屏蔽)的版本，或者您可以选择 response.text 记录原始内容
                     print(f"🤖 AI回复: \n{final_text_display}\n" + "-"*50, flush=True)
             
             st.session_state.chat_history.append(("user", user_query))
