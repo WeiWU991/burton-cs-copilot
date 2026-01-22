@@ -190,7 +190,7 @@ with st.sidebar:
 
 # ================= 主界面 =================
 st.title("🏂 Burton China CS CO-Pilot")
-st.caption("🚀 Powered by YZ-Shield | Native RAG | 🛡️ Smart Ad-Law Guard")
+st.caption("🚀 Powered by YZ-Shield | Native RAG | 🛡️ 极限词保护")
 st.divider() 
 
 # --- 对话工作台 ---
@@ -290,3 +290,4 @@ if user_query:
             print(f"❌ [生成错误] {e}")
             if "404" in str(e):
                 st.warning("提示：请检查 API Key 是否支持 Gemini 3 Preview 模型。")
+
