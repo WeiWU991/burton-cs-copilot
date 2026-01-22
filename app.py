@@ -33,8 +33,16 @@ if "kb_loaded" not in st.session_state:
 
 # ================= 核心逻辑：智能合规过滤 (Smart Shield) =================
 
-# 🔴 新增：高频极限词的“安全替身”字典
-# 既然 AI 偶尔会漏网，我们就用代码帮它圆场，保证语句通顺
+# 🟢 白名单：这些词绝对不能被屏蔽！
+SAFE_WORDS = {
+    "Burton", "BURTON", "burton", 
+    "Anon", "ANON", "anon",
+    "ak", "AK", "[ak]",
+    "GORE-TEX", "Boa", "MIPS", 
+    "Step On", "Est", "Re:Flex"
+}
+
+# 🔴 高频极限词的“安全替身”字典
 SMART_SYNONYMS = {
     "第一": "排名前列",
     "NO.1": "人气热销",
@@ -71,13 +79,19 @@ def load_banned_words():
         try:
             with open(txt_file, "r", encoding='utf-8') as f:
                 content = f.read()
-                raw_words = re.split(r"[,\n\s']+", content)
+                # 兼容逗号、换行符、引号等多种分割方式
+                raw_words = re.split(r"[,\n\s'\"\[\]]+", content)
                 for w in raw_words:
-                    clean_w = w.strip('"').strip("'").strip()
-                    if len(clean_w) > 1:
+                    clean_w = w.strip()
+                    # 逻辑：长度大于1 + 不在白名单里
+                    if len(clean_w) > 1 and clean_w not in SAFE_WORDS and clean_w.lower() not in [s.lower() for s in SAFE_WORDS]:
                         banned_set.add(clean_w)
         except Exception:
             pass
+    
+    # 二次清洗：确保白名单词绝对不在集合中
+    banned_set = {w for w in banned_set if w not in SAFE_WORDS and w.lower() not in [s.lower() for s in SAFE_WORDS]}
+    
     return banned_set
 
 def highlight_banned_words(text, banned_set):
@@ -85,30 +99,25 @@ def highlight_banned_words(text, banned_set):
     if not banned_set: return text, False
     found = False
     for word in banned_set:
+        # 忽略大小写匹配可能误杀，这里采用精确匹配
         if word in text:
             found = True
-            # 如果有建议替换词，显示在旁边
             suggestion = f" 💡建议改:{SMART_SYNONYMS[word]}" if word in SMART_SYNONYMS else ""
             text = text.replace(word, f":red[**🚫{word}**]{suggestion}")
     return text, found
 
 def shield_banned_words(text, banned_set):
-    """
-    【外发模式】智能替换
-    1. 优先查找 SMART_SYNONYMS 进行“软替换”（保持通顺）。
-    2. 找不到替换词，则使用 [合规屏蔽] 进行“硬屏蔽”。
-    """
+    """【外发模式】智能替换"""
     if not banned_set: return text, False
     found = False
     for word in banned_set:
         if word in text:
             found = True
             if word in SMART_SYNONYMS:
-                # 方案 A：使用同义词替换
                 replacement = SMART_SYNONYMS[word]
             else:
-                # 方案 B：使用占位符 (比 ** 更清晰)
-                replacement = "" # 或者用 "[热销]" 这种万能词，这里留空或用空格可能更自然
+                # 兜底屏蔽：不显示星号，直接移除或用空格，显得更自然
+                replacement = "" 
             
             text = text.replace(word, replacement)
     return text, found
@@ -232,23 +241,17 @@ if st.session_state.chat_history:
                 safe_text, _ = smart_compliance_filter(text, st.session_state.banned_words)
                 st.markdown(safe_text)
 
-# 核心 Prompt (明确要求使用合规词汇)
+# 核心 Prompt
 system_instruction = """
 你不是直接面对消费者的聊天机器人，你是 **Burton China 客服团队的智能副驾 (CS Copilot)**。
 你的知识库已经由管理员预置（Markdown文档），数据精准且权威。
 
 # 核心原则 (Critical)
-1. **合规第一 (Compliance)**：
-   - 严禁使用中国广告法禁止的极限词（如：第一、最强、顶级、首选、全网独家、极致、完美）。
-   - **强制替换规则**：请在生成内容时，直接将这些词替换为合规说法。
-     - "顶级" -> "高端"
-     - "第一" -> "热销" / "排名前列"
-     - "极致" -> "出色"
-     - "完美" -> "理想"
+1. **合规第一**：严禁使用中国广告法禁止的极限词（如：第一、最强、顶级、首选、全网独家）。如果文档里有这些词，**尽量在回复时替换为合规同义词**。
 2. **精准查询**：查询价格、参数时，必须严格对应文档中的表格数据。
 3. **价格高亮**：使用 `:orange[**¥价格**]` 格式。
 4. **硬性销售逻辑**：选板必问体重；Step On必问鞋码。
-5. **输出格式**：请严格按照 Markdown 格式输出【控制台视图】。
+5. **格式严格**：必须严格遵守下面的 Markdown 结构，标题不可更改。
 
 # 输出视图结构
 ---
@@ -304,13 +307,12 @@ if user_query:
                 with st.spinner("🤖 YZ-Shield 正在检索企业知识库..."):
                     response = chat.send_message(st.session_state.gemini_files + [user_query])
                     
-                    # 智能分层过滤
                     final_text_display, has_issues = smart_compliance_filter(response.text, st.session_state.banned_words)
                     
                     st.markdown(final_text_display)
                     
                     if has_issues:
-                        st.toast("🛡️ 已将部分极限词替换为合规说法，可直接复制。", icon="✅")
+                        st.toast("🛡️ 已执行合规处理：内部分析标红，外发话术已屏蔽。", icon="✅")
                     
                     print(f"🤖 AI回复: \n{final_text_display}\n" + "-"*50, flush=True)
             
