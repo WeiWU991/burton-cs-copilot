@@ -79,27 +79,22 @@ def load_banned_words():
         try:
             with open(txt_file, "r", encoding='utf-8') as f:
                 content = f.read()
-                # 兼容逗号、换行符、引号等多种分割方式
                 raw_words = re.split(r"[,\n\s'\"\[\]]+", content)
                 for w in raw_words:
                     clean_w = w.strip()
-                    # 逻辑：长度大于1 + 不在白名单里
                     if len(clean_w) > 1 and clean_w not in SAFE_WORDS and clean_w.lower() not in [s.lower() for s in SAFE_WORDS]:
                         banned_set.add(clean_w)
         except Exception:
             pass
     
-    # 二次清洗：确保白名单词绝对不在集合中
     banned_set = {w for w in banned_set if w not in SAFE_WORDS and w.lower() not in [s.lower() for s in SAFE_WORDS]}
-    
     return banned_set
 
 def highlight_banned_words(text, banned_set):
-    """【内控模式】标红敏感词，并显示建议替换词（如果有）"""
+    """【内控模式】标红敏感词"""
     if not banned_set: return text, False
     found = False
     for word in banned_set:
-        # 忽略大小写匹配可能误杀，这里采用精确匹配
         if word in text:
             found = True
             suggestion = f" 💡建议改:{SMART_SYNONYMS[word]}" if word in SMART_SYNONYMS else ""
@@ -113,12 +108,7 @@ def shield_banned_words(text, banned_set):
     for word in banned_set:
         if word in text:
             found = True
-            if word in SMART_SYNONYMS:
-                replacement = SMART_SYNONYMS[word]
-            else:
-                # 兜底屏蔽：不显示星号，直接移除或用空格，显得更自然
-                replacement = "" 
-            
+            replacement = SMART_SYNONYMS.get(word, "") # 找不到则删除
             text = text.replace(word, replacement)
     return text, found
 
@@ -141,11 +131,8 @@ def smart_compliance_filter(full_response, banned_set):
     reply_content = sub_parts[0]
     part_after = NEXT_SECTION_HEADER + sub_parts[1] if len(sub_parts) > 1 else ""
     
-    # 1. 前段（分析）：标红
     safe_before, issue1 = highlight_banned_words(part_before, banned_set)
-    # 2. 中段（话术）：智能替换
     safe_reply, issue2 = shield_banned_words(reply_content, banned_set)
-    # 3. 后段（关联）：标红
     safe_after, issue3 = highlight_banned_words(part_after, banned_set)
     
     final_text = safe_before + REPLY_SECTION_HEADER + safe_reply + safe_after
@@ -203,10 +190,9 @@ with st.sidebar:
     else:
         st.warning(f"⚠️ 文件夹 {KB_FOLDER} 为空")
 
-    st.caption("🛡️ 合规护盾 (智能替换版)")
+    st.caption("🛡️ 合规护盾 (智能版)")
     if st.session_state.banned_words:
         st.success(f"✅ 已激活 ({len(st.session_state.banned_words)} 词条)")
-        st.info("👀 分析区：标红 + 修改建议\n📋 复制区：自动替换为合规词")
     else:
         st.warning("⚠️ 未激活")
 
@@ -227,7 +213,7 @@ with st.sidebar:
 
 # ================= 主界面 =================
 st.title("🏂 Burton China CS CO-Pilot")
-st.caption("🚀 Powered by YZ-Shield | Native RAG | 🛡️极限词保护")
+st.caption("🚀 Powered by YZ-Shield | Native RAG | 🛡️ Smart Ad-Law Guard")
 st.divider() 
 
 # --- 对话工作台 ---
@@ -241,16 +227,23 @@ if st.session_state.chat_history:
                 safe_text, _ = smart_compliance_filter(text, st.session_state.banned_words)
                 st.markdown(safe_text)
 
-# 核心 Prompt
+# 核心 Prompt (价格隐蔽策略 + 合规策略)
 system_instruction = """
 你不是直接面对消费者的聊天机器人，你是 **Burton China 客服团队的智能副驾 (CS Copilot)**。
 你的知识库已经由管理员预置（Markdown文档），数据精准且权威。
 
 # 核心原则 (Critical)
-1. **合规第一**：严禁使用中国广告法禁止的极限词（如：第一、最强、顶级、首选、全网独家）。如果文档里有这些词，**尽量在回复时替换为合规同义词**。
-2. **精准查询**：查询价格、参数时，必须严格对应文档中的表格数据。
-3. **价格高亮**：使用 `:orange[**¥价格**]` 格式。
+1. **价格策略 (Price Hiding)**：
+   - **内部逻辑**：你可以利用文档中的价格信息来筛选产品（例如：用户问"推荐8000元左右的板子"，你应当去匹配吊牌价在7000-9000的产品）。
+   - **严禁输出**：由于活动价格频繁变动，文档中的MSRP（建议零售价）仅供参考。**严禁在最终回复的任何部分（包括分析区和话术区）写出具体的金额数字**。
+   - **话术替代**：当涉及价格话题时，请统一引导："具体价格请以店铺实时活动为准" 或仅描述定位（如"高端款"、"进阶款"）。
+
+2. **合规第一 (Compliance)**：严禁使用中国广告法禁止的极限词（如：第一、最强、顶级、首选、全网独家）。如果文档里有这些词，**尽量在回复时替换为合规同义词**。
+
+3. **精准查询**：除价格外的参数（硬度、材质、科技），必须严格对应文档数据。
+
 4. **硬性销售逻辑**：选板必问体重；Step On必问鞋码。
+
 5. **格式严格**：必须严格遵守下面的 Markdown 结构，标题不可更改。
 
 # 输出视图结构
@@ -261,14 +254,14 @@ system_instruction = """
 * **情绪指数**: [⭐⭐⭐⭐⭐]
 
 ### 2️⃣ 📚 核心知识胶囊
-* **推荐产品**: 
-* **参考价格**: :orange[**¥xxxx**] (数据来源: [文件名])
+* **推荐产品**: [仅写型号]
+* **产品定位**: [例如：高端全能板 / 入门性价比款] (🚫严禁写具体价格)
 * **核心科技**: 
 * **技术解释**: 
 
 ### 3️⃣ 💬 建议回复话术
 > **请复制以下内容发送给客户：**
-> "[建议回复内容。语气亲切，严禁出现极限词。]"
+> "[建议回复内容。语气亲切，严禁出现极限词，严禁出现具体价格数字。]"
 
 ### 4️⃣ 🎯 关联销售机会
 * **推荐搭配**: 
@@ -276,7 +269,7 @@ system_instruction = """
 ---
 """
 
-user_query = st.chat_input("在此输入客户问题 (例如：这款板子是不是全网第一？)...")
+user_query = st.chat_input("在此输入客户问题 (例如：帮我选个8000左右的板子)...")
 
 if user_query:
     if not api_key:
@@ -312,7 +305,7 @@ if user_query:
                     st.markdown(final_text_display)
                     
                     if has_issues:
-                        st.toast("🛡️ 已执行合规处理：内部分析标红，外发话术已屏蔽。", icon="✅")
+                        st.toast("🛡️ 已替换极限词，价格已按策略隐藏。", icon="✅")
                     
                     print(f"🤖 AI回复: \n{final_text_display}\n" + "-"*50, flush=True)
             
