@@ -33,7 +33,7 @@ if "kb_loaded" not in st.session_state:
 
 # ================= 核心逻辑：智能合规过滤 (Smart Shield) =================
 
-# 🟢 白名单：这些词绝对不能被屏蔽！
+# 🟢 白名单
 SAFE_WORDS = {
     "Burton", "BURTON", "burton", 
     "Anon", "ANON", "anon",
@@ -108,7 +108,7 @@ def shield_banned_words(text, banned_set):
     for word in banned_set:
         if word in text:
             found = True
-            replacement = SMART_SYNONYMS.get(word, "") # 找不到则删除
+            replacement = SMART_SYNONYMS.get(word, "") 
             text = text.replace(word, replacement)
     return text, found
 
@@ -205,19 +205,16 @@ with st.sidebar:
     )
     selected_model_name = "gemini-3-flash-preview" if "Flash" in model_choice else "gemini-3-pro-preview"
 
-    st.divider()
-
-    if st.button("接待新客户 (清空记忆)", type="primary", use_container_width=True):
-        st.session_state.chat_history = []
-        st.rerun()
+    # 🔴 已移除“接待新客户”按钮，因为现在默认就是无记忆模式
 
 # ================= 主界面 =================
 st.title("🏂 Burton China CS CO-Pilot")
-st.caption("🚀 Powered by YZ-Shield | Native RAG | 🛡️极限词过滤")
+st.caption("🚀 Powered by YZ-Shield | Native RAG | 🛡️极限词保护")
 st.divider() 
 
 # --- 对话工作台 ---
 if st.session_state.chat_history:
+    # 依然显示最近的对话记录，方便客服查看上下文，但AI不会读取这些
     for role, text in st.session_state.chat_history[-6:]:
         if role == "user":
             with st.chat_message("user", avatar="👤"):
@@ -227,24 +224,22 @@ if st.session_state.chat_history:
                 safe_text, _ = smart_compliance_filter(text, st.session_state.banned_words)
                 st.markdown(safe_text)
 
-# 核心 Prompt (价格隐蔽策略 + 合规策略)
+# 核心 Prompt
 system_instruction = """
 你不是直接面对消费者的聊天机器人，你是 **Burton China 客服团队的智能副驾 (CS Copilot)**。
 你的知识库已经由管理员预置（Markdown文档），数据精准且权威。
 
 # 核心原则 (Critical)
-1. **价格策略 (Price Hiding)**：
-   - **内部逻辑**：你可以利用文档中的价格信息来筛选产品（例如：用户问"推荐8000元左右的板子"，你应当去匹配吊牌价在7000-9000的产品）。
-   - **严禁输出**：由于活动价格频繁变动，文档中的MSRP（建议零售价）仅供参考。**严禁在最终回复的任何部分（包括分析区和话术区）写出具体的金额数字**。
-   - **话术替代**：当涉及价格话题时，请统一引导："具体价格请以店铺实时活动为准" 或仅描述定位（如"高端款"、"进阶款"）。
-
-2. **合规第一 (Compliance)**：严禁使用中国广告法禁止的极限词（如：第一、最强、顶级、首选、全网独家）。如果文档里有这些词，**尽量在回复时替换为合规同义词**。
-
-3. **精准查询**：除价格外的参数（硬度、材质、科技），必须严格对应文档数据。
-
-4. **硬性销售逻辑**：选板必问体重；Step On必问鞋码。
-
-5. **格式严格**：必须严格遵守下面的 Markdown 结构，标题不可更改。
+1. **独立问答 (Stateless)**：请忽略任何之前的对话历史，仅根据本次提问进行回答。每一次提问都是一个全新的客户。
+2. **价格策略 (Price Hiding)**：
+   - 内部逻辑：利用文档价格筛选产品。
+   - **严禁输出**：严禁在最终回复中写出具体的金额数字。
+   - 话术替代：引导"具体价格请以店铺实时活动为准"。
+3. **合规第一 (Compliance)**：严禁使用极限词（如：第一、最强、顶级）。请在生成时替换为合规同义词。
+4. **精准查询**：除价格外，参数必须严格对应文档。
+5. **硬性销售逻辑**：
+   - 选板必问体重。
+   - Step On必问鞋码。
 
 # 输出视图结构
 ---
@@ -255,7 +250,7 @@ system_instruction = """
 
 ### 2️⃣ 📚 核心知识胶囊
 * **推荐产品**: [仅写型号]
-* **产品定位**: [例如：高端全能板 / 入门性价比款] (🚫严禁写具体价格)
+* **产品定位**: [例如：高端全能板] (🚫无价格)
 * **核心科技**: 
 * **技术解释**: 
 
@@ -289,15 +284,12 @@ if user_query:
                 system_instruction=system_instruction
             )
             
-            gemini_history = []
-            for role, text in st.session_state.chat_history[-6:]:
-                gemini_role = "user" if role == "user" else "model"
-                gemini_history.append({"role": gemini_role, "parts": [text]})
-
-            chat = model.start_chat(history=gemini_history)
+            # 🔴 关键修改：强制清空历史，每次都是全新对话
+            # 这里的 history=[] 意味着 AI 不会看到之前的任何一句话
+            chat = model.start_chat(history=[]) 
             
             with st.chat_message("assistant", avatar="🏂"):
-                with st.spinner("🤖 YZ-Shield 正在检索企业知识库..."):
+                with st.spinner("🤖 YZ-Shield 正在独立思考 (无记忆模式)..."):
                     response = chat.send_message(st.session_state.gemini_files + [user_query])
                     
                     final_text_display, has_issues = smart_compliance_filter(response.text, st.session_state.banned_words)
@@ -309,6 +301,7 @@ if user_query:
                     
                     print(f"🤖 AI回复: \n{final_text_display}\n" + "-"*50, flush=True)
             
+            # 仅在 UI 层面保存历史，供客服回看
             st.session_state.chat_history.append(("user", user_query))
             st.session_state.chat_history.append(("assistant", response.text))
                 
@@ -317,4 +310,3 @@ if user_query:
             print(f"❌ [生成错误] {e}", flush=True)
             if "404" in str(e):
                 st.warning("提示：请检查 API Key 是否支持 Gemini 3 Preview 模型。")
-
