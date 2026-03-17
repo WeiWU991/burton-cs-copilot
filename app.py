@@ -31,7 +31,6 @@ if "kb_loaded" not in st.session_state:
     st.session_state.kb_loaded = False
 if "training_scenario" not in st.session_state:
     st.session_state.training_scenario = ""
-# 新增：用于存储生成的培训卡片
 if "training_card" not in st.session_state:
     st.session_state.training_card = ""
 
@@ -209,25 +208,43 @@ if app_mode == "💬 客服实战副驾":
 
 # ================= 模式 2：AI 模拟陪练营 =================
 elif app_mode == "🎓 AI 模拟陪练营":
-    st.subheader("🎓 阶梯式内训与实战考核")
-    st.info("💡 **系统提示**：新员工请先抽取「知识微课卡片」进行基础学习，掌握核心卖点后再进行「实战通关」演练。")
+    st.subheader("🎓 阶梯式产品内训与演练")
+    st.info("💡 **学习指引**：请先在下拉菜单选择指定的【课程章节】抽取知识卡片复习，随后生成该章节的实战模拟题进行检验。")
     
     col1, col2 = st.columns(2)
     with col1:
-        train_category = st.selectbox("📚 1. 选择今日主攻品类", ["Snowboards (单板)", "Boots & Bindings (雪靴与固定器)", "Outerwear (雪服)", "Anon (雪镜与头盔)"])
+        # 🔴 核心修改：将宽泛的品类改为精确的“课程目录”，与上传的文件强对应
+        train_chapter = st.selectbox(
+            "📚 1. 选择学习章节 (课程目录)", 
+            [
+                "W26 新款雪板核心科技 (Hardgoods)", 
+                "W26 新款雪服与配件 (Softgoods)", 
+                "W25 雪板与儿童系列", 
+                "W25 雪靴、固定器与 Anon 雪镜",
+                "基础参数与通用导购技巧"
+            ]
+        )
     with col2:
-        train_level = st.selectbox("🔥 2. 选择实战考核难度", ["Level 1: 友好型新手 (核心基础)", "Level 2: 纠结的进阶玩家 (连带推荐)", "Level 3: 地狱模式 (刁钻客诉/极限要求)"])
+        # 🔴 核心修改：文案去“客诉”化，强调知识与实战
+        train_level = st.selectbox(
+            "🔥 2. 选择实战难度", 
+            [
+                "Level 1: 基础参数提问 (考察产品熟悉度)", 
+                "Level 2: 进阶场景推荐 (考察连带销售能力)", 
+                "Level 3: 极限压力挑战 (考察专业应对与合规)"
+            ]
+        )
 
     st.divider()
 
     # --- 第一阶段：知识微课 ---
     st.markdown("### 📖 第一阶：知识充电站 (Micro-Lesson)")
-    st.caption("基于最新产品手册自动提炼，请仔细阅读后再接受考核。")
+    st.caption("基于最新产品手册自动提炼，精准打击知识盲区。")
     
-    if st.button("💡 抽取【" + train_category + "】知识点卡片", use_container_width=True):
-        with st.spinner(f"🤖 AI 导师正在从海量文档中提炼 {train_category} 核心知识点..."):
+    if st.button("💡 抽取【" + train_chapter + "】知识点卡片", use_container_width=True):
+        with st.spinner(f"🤖 AI 导师正在为您提炼 {train_chapter} 的核心知识点..."):
             card_prompt = f"""
-            你是 Burton 资深内训师。请根据你的知识库，为新员工生成一张关于【{train_category}】的『培训微卡片』。
+            你是 Burton 资深内训师。请根据你的知识库，为新员工生成一张关于【{train_chapter}】的『培训微卡片』。
             要求严格按照以下 Markdown 格式输出，语言简练生动，严禁使用广告法极限词，严禁出现具体金额数字：
             
             #### 🌟 核心卖点速记 (Top 3)
@@ -235,34 +252,33 @@ elif app_mode == "🎓 AI 模拟陪练营":
             * **[卖点2标题]**: [一句话解释其带来的客户价值]
             * **[卖点3标题]**: [一句话解释其带来的客户价值]
             
-            #### 🙋 常见避坑指南
-            * **客户常问**: [列出1个该品类新手最爱问的问题，如单板的长度怎么选，或StepOn兼容性]
+            #### 🙋 常见咨询与避坑指南
+            * **客户常问**: [列出1个该章节新手最爱问的问题]
             * **标准解答**: [给出专业、亲切的解答思路，注意必须提醒员工询问客户的身高/体重/鞋码等关键信息]
             """
             try:
                 response = model.generate_content(st.session_state.gemini_files + [card_prompt])
                 st.session_state.training_card = response.text
-                st.session_state.training_scenario = "" # 清空旧考题，防止拿着旧考题考新知识
+                st.session_state.training_scenario = "" 
             except Exception as e:
                 st.error("提取知识卡片失败，请重试。")
 
     if st.session_state.training_card:
-        # 使用好看的容器包裹知识卡片
         with st.container(border=True):
             st.markdown(st.session_state.training_card)
 
     st.divider()
 
     # --- 第二阶段：实战考核 ---
-    st.markdown("### ⚔️ 第二阶：实战通关演练 (Role-play Test)")
+    st.markdown("### ⚔️ 第二阶：实战模拟演练 (Role-play Simulation)")
     
-    # 只有学了卡片，才建议出题
     if not st.session_state.training_card:
         st.warning("⚠️ 建议先在上方抽取并学习『知识充电站』卡片，再进行实战演练。")
         
-    if st.button("🎲 生成【" + train_level + "】考核客诉", type="primary"):
+    # 🔴 按钮文案更新
+    if st.button("🎲 生成【" + train_level + "】模拟题", type="primary"):
         with st.spinner("🤖 AI 客服总监正在出题..."):
-            prompt_scenario = f"基于你的Burton知识库。现在是一场客服培训考试。你需要扮演一个客户，就【{train_category}】品类发起咨询。客户特点是：【{train_level}】。请只输出一句客户说的话（带引号），要求口语化、真实，字数在50字以内。不要任何其他解释。"
+            prompt_scenario = f"基于你的Burton知识库。现在是一场内部产品知识考核。你需要扮演一个客户，就【{train_chapter}】相关产品发起咨询。客户特点是：【{train_level}】。请只输出一句客户说的话（带引号），要求口语化、真实，字数在50字以内。不要任何其他解释。"
             try:
                 response = model.generate_content(st.session_state.gemini_files + [prompt_scenario])
                 st.session_state.training_scenario = response.text
@@ -271,23 +287,24 @@ elif app_mode == "🎓 AI 模拟陪练营":
 
     if st.session_state.training_scenario:
         st.success("✅ 考题已下发，请开始作答！")
-        st.markdown(f"### 🤬 客户发问：\n> **{st.session_state.training_scenario}**")
+        st.markdown(f"### 🙋‍♂️ 客户咨询：\n> **{st.session_state.training_scenario}**")
         
-        trainee_reply = st.text_area("✍️ 请在此输入你的回复（你的应对客诉话术）：", height=150)
+        # 🔴 输入框文案更新
+        trainee_reply = st.text_area("✍️ 请在此输入您的专业回复/导购话术：", height=150)
         
         if st.button("📝 提交批改"):
             if trainee_reply:
                 with st.spinner("👨‍🏫 AI 导师正在阅卷..."):
                     eval_prompt = f"""
-                    你是 Burton 资深客服培训总监。请严格评估以下新员工的回复。
+                    你是 Burton 资深内训总监。请严格评估以下新员工的回复。
                     
                     客户问题: {st.session_state.training_scenario}
                     新员工回复: {trainee_reply}
                     
                     【评分标准 (满分100)】
                     1. 致命错误 (-30分): 是否使用了广告法极限词 (如最、第一、顶级等)，或者擅自承诺了具体价格数字。
-                    2. 流程错误 (-20分): 选板是否忘记反问身高/体重？选鞋/固定器是否忘记反问鞋码？
-                    3. 专业度 (40分): 推荐的产品、科技点是否准确对应知识库。
+                    2. 流程错误 (-20分): 导购逻辑是否缺失？(如选板未问身高/体重，选鞋/固定器未问鞋码)。
+                    3. 专业度 (40分): 推荐的产品、科技点是否准确对应知识库中【{train_chapter}】的内容。
                     4. 服务态度 (10分): 语气是否专业、耐心、亲切。
 
                     请严格按照以下 Markdown 格式输出：
@@ -297,7 +314,7 @@ elif app_mode == "🎓 AI 模拟陪练营":
                     ### 🔍 扣分项与亮点分析
                     * [列出具体哪里做得好，哪里扣分了]
                     
-                    ### 💡 总监示范话术
+                    ### 💡 优秀示范话术
                     > [给出一个满分的完美回复示范。语气要符合品牌调性，且包含必要的信息反问]
                     """
                     try:
@@ -305,12 +322,12 @@ elif app_mode == "🎓 AI 模拟陪练营":
                         st.markdown(eval_response.text)
                         
                         if "不及格" in eval_response.text or "D" in eval_response.text or "C" in eval_response.text:
-                            st.warning("⚠️ 看来知识点还没掌握牢固，回到第一阶段再去看看『微课卡片』吧！")
+                            st.warning("⚠️ 看来知识点还没掌握牢固，建议回到第一阶段再去复习一下『微课卡片』！")
                         else:
                             st.balloons()
-                            st.success("🎉 太棒了！你的专业度足以应对真实的客户场景！")
+                            st.success("🎉 太棒了！您的产品知识和沟通技巧非常专业！")
                             
                     except Exception as e:
                         st.error("评分失败。")
             else:
-                st.warning("请先输入你的回复话术！")
+                st.warning("请先输入您的回复话术！")
