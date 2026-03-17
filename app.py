@@ -29,9 +29,11 @@ if "banned_words" not in st.session_state:
     st.session_state.banned_words = set()
 if "kb_loaded" not in st.session_state:
     st.session_state.kb_loaded = False
-# 新增：用于存储生成的培训场景
 if "training_scenario" not in st.session_state:
     st.session_state.training_scenario = ""
+# 新增：用于存储生成的培训卡片
+if "training_card" not in st.session_state:
+    st.session_state.training_card = ""
 
 # ================= 核心逻辑：智能合规过滤 =================
 SAFE_WORDS = {
@@ -141,7 +143,6 @@ if api_key and not st.session_state.kb_loaded:
 with st.sidebar:
     st.image("https://upload.wikimedia.org/wikipedia/commons/thumb/3/3b/Burton_Snowboards_logo.svg/2560px-Burton_Snowboards_logo.svg.png", width=150)
     
-    # 🔴 新增：功能模块切换器
     app_mode = st.radio("🎯 核心功能模块:", ["💬 客服实战副驾", "🎓 AI 模拟陪练营"])
     st.divider()
 
@@ -191,7 +192,6 @@ if app_mode == "💬 客服实战副驾":
         else:
             with st.chat_message("user", avatar="👤"): st.write(user_query)
             try:
-                chat = model.start_chat(history=[]) 
                 model_with_sys = genai.GenerativeModel(model_name=selected_model_name, system_instruction=system_instruction)
                 chat = model_with_sys.start_chat(history=[])
                 
@@ -209,18 +209,60 @@ if app_mode == "💬 客服实战副驾":
 
 # ================= 模式 2：AI 模拟陪练营 =================
 elif app_mode == "🎓 AI 模拟陪练营":
-    st.subheader("🎓 阶梯式通关实战演练")
-    st.info("💡 **向客户演示建议**：这是我们在二期规划的『AI 金牌导师』功能。系统会根据知识库自动扮演刁钻客户，并对新员工的回复进行质检打分。")
+    st.subheader("🎓 阶梯式内训与实战考核")
+    st.info("💡 **系统提示**：新员工请先抽取「知识微课卡片」进行基础学习，掌握核心卖点后再进行「实战通关」演练。")
     
     col1, col2 = st.columns(2)
     with col1:
-        train_category = st.selectbox("📚 选择培训产品线", ["Snowboards (雪板)", "Boots & Bindings (鞋&固定器)", "Outerwear (雪服)", "Anon (雪镜/头盔)"])
+        train_category = st.selectbox("📚 1. 选择今日主攻品类", ["Snowboards (单板)", "Boots & Bindings (雪靴与固定器)", "Outerwear (雪服)", "Anon (雪镜与头盔)"])
     with col2:
-        train_level = st.selectbox("🔥 选择客户刁钻程度", ["Level 1: 友好型新手", "Level 2: 预算充足但纠结的进阶玩家", "Level 3: 地狱模式 (暴躁/极限要求)"])
+        train_level = st.selectbox("🔥 2. 选择实战考核难度", ["Level 1: 友好型新手 (核心基础)", "Level 2: 纠结的进阶玩家 (连带推荐)", "Level 3: 地狱模式 (刁钻客诉/极限要求)"])
 
-    if st.button("🎲 生成客诉场景", type="primary"):
+    st.divider()
+
+    # --- 第一阶段：知识微课 ---
+    st.markdown("### 📖 第一阶：知识充电站 (Micro-Lesson)")
+    st.caption("基于最新产品手册自动提炼，请仔细阅读后再接受考核。")
+    
+    if st.button("💡 抽取【" + train_category + "】知识点卡片", use_container_width=True):
+        with st.spinner(f"🤖 AI 导师正在从海量文档中提炼 {train_category} 核心知识点..."):
+            card_prompt = f"""
+            你是 Burton 资深内训师。请根据你的知识库，为新员工生成一张关于【{train_category}】的『培训微卡片』。
+            要求严格按照以下 Markdown 格式输出，语言简练生动，严禁使用广告法极限词，严禁出现具体金额数字：
+            
+            #### 🌟 核心卖点速记 (Top 3)
+            * **[卖点1标题]**: [一句话解释其带来的客户价值]
+            * **[卖点2标题]**: [一句话解释其带来的客户价值]
+            * **[卖点3标题]**: [一句话解释其带来的客户价值]
+            
+            #### 🙋 常见避坑指南
+            * **客户常问**: [列出1个该品类新手最爱问的问题，如单板的长度怎么选，或StepOn兼容性]
+            * **标准解答**: [给出专业、亲切的解答思路，注意必须提醒员工询问客户的身高/体重/鞋码等关键信息]
+            """
+            try:
+                response = model.generate_content(st.session_state.gemini_files + [card_prompt])
+                st.session_state.training_card = response.text
+                st.session_state.training_scenario = "" # 清空旧考题，防止拿着旧考题考新知识
+            except Exception as e:
+                st.error("提取知识卡片失败，请重试。")
+
+    if st.session_state.training_card:
+        # 使用好看的容器包裹知识卡片
+        with st.container(border=True):
+            st.markdown(st.session_state.training_card)
+
+    st.divider()
+
+    # --- 第二阶段：实战考核 ---
+    st.markdown("### ⚔️ 第二阶：实战通关演练 (Role-play Test)")
+    
+    # 只有学了卡片，才建议出题
+    if not st.session_state.training_card:
+        st.warning("⚠️ 建议先在上方抽取并学习『知识充电站』卡片，再进行实战演练。")
+        
+    if st.button("🎲 生成【" + train_level + "】考核客诉", type="primary"):
         with st.spinner("🤖 AI 客服总监正在出题..."):
-            prompt_scenario = f"基于你的Burton知识库，生成一段简短的、真实的客户咨询对话（只需客户说的一句话）。客户购买品类是 {train_category}，客户的特点是 {train_level}。不要任何前言后语，只输出客户的带引号的话。"
+            prompt_scenario = f"基于你的Burton知识库。现在是一场客服培训考试。你需要扮演一个客户，就【{train_category}】品类发起咨询。客户特点是：【{train_level}】。请只输出一句客户说的话（带引号），要求口语化、真实，字数在50字以内。不要任何其他解释。"
             try:
                 response = model.generate_content(st.session_state.gemini_files + [prompt_scenario])
                 st.session_state.training_scenario = response.text
@@ -228,10 +270,10 @@ elif app_mode == "🎓 AI 模拟陪练营":
                 st.error("出题失败，请重试。")
 
     if st.session_state.training_scenario:
-        st.success("✅ 场景已生成，请开始你的表演！")
-        st.markdown(f"### 🤬 客户发话了：\n> **{st.session_state.training_scenario}**")
+        st.success("✅ 考题已下发，请开始作答！")
+        st.markdown(f"### 🤬 客户发问：\n> **{st.session_state.training_scenario}**")
         
-        trainee_reply = st.text_area("✍️ 请在此输入你的回复（客服话术）：", height=150)
+        trainee_reply = st.text_area("✍️ 请在此输入你的回复（你的应对客诉话术）：", height=150)
         
         if st.button("📝 提交批改"):
             if trainee_reply:
@@ -243,10 +285,10 @@ elif app_mode == "🎓 AI 模拟陪练营":
                     新员工回复: {trainee_reply}
                     
                     【评分标准 (满分100)】
-                    1. 致命错误 (-30分): 是否使用了广告法极限词 (如最、第一、顶级等)。
-                    2. 流程错误 (-20分): 选板是否忘记问身高/体重？选鞋/固定器是否忘记问鞋码？
-                    3. 专业度 (40分): 推荐的产品、科技点是否符合 Burton 调性。
-                    4. 服务态度 (10分): 语气是否专业亲切。
+                    1. 致命错误 (-30分): 是否使用了广告法极限词 (如最、第一、顶级等)，或者擅自承诺了具体价格数字。
+                    2. 流程错误 (-20分): 选板是否忘记反问身高/体重？选鞋/固定器是否忘记反问鞋码？
+                    3. 专业度 (40分): 推荐的产品、科技点是否准确对应知识库。
+                    4. 服务态度 (10分): 语气是否专业、耐心、亲切。
 
                     请严格按照以下 Markdown 格式输出：
                     ### 🎯 综合评分: [X分] / 100分
@@ -256,19 +298,19 @@ elif app_mode == "🎓 AI 模拟陪练营":
                     * [列出具体哪里做得好，哪里扣分了]
                     
                     ### 💡 总监示范话术
-                    > [给出一个满分的完美回复示范]
+                    > [给出一个满分的完美回复示范。语气要符合品牌调性，且包含必要的信息反问]
                     """
                     try:
                         eval_response = model.generate_content(st.session_state.gemini_files + [eval_prompt])
                         st.markdown(eval_response.text)
                         
-                        # 如果得分低，加个趣味提示
                         if "不及格" in eval_response.text or "D" in eval_response.text or "C" in eval_response.text:
-                            st.warning("⚠️ 看来还需要多加练习！回去多看看产品手册哦。")
+                            st.warning("⚠️ 看来知识点还没掌握牢固，回到第一阶段再去看看『微课卡片』吧！")
                         else:
                             st.balloons()
+                            st.success("🎉 太棒了！你的专业度足以应对真实的客户场景！")
                             
                     except Exception as e:
                         st.error("评分失败。")
             else:
-                st.warning("请先输入你的回复！")
+                st.warning("请先输入你的回复话术！")
