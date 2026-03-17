@@ -221,6 +221,8 @@ elif app_mode == "🎓 AI 模拟陪练营":
                 "W26 新款雪服与配件 (Softgoods)", 
                 "W25 雪板与儿童系列", 
                 "W25 雪靴、固定器与 Anon 雪镜",
+                "W24 经典雪板回顾 (Hardgoods)",
+                "W24 雪服面料更新解析 (Softgoods)",
                 "基础参数与通用导购技巧"
             ]
         )
