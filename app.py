@@ -143,6 +143,17 @@ with st.sidebar:
     st.image("https://upload.wikimedia.org/wikipedia/commons/thumb/3/3b/Burton_Snowboards_logo.svg/2560px-Burton_Snowboards_logo.svg.png", width=150)
     
     app_mode = st.radio("🎯 核心功能模块:", ["💬 客服实战副驾", "🎓 AI 新星起航计划 (内训)"])
+    
+    # 🔴 新增：恢复清空记忆按钮（仅在实战副驾模式下显示）
+    if app_mode == "💬 客服实战副驾":
+        if st.button("🗑️ 接待新客户 (清空记忆)", type="primary", use_container_width=True):
+            st.session_state.chat_history = []
+            if "cs_chat_session" in st.session_state:
+                del st.session_state.cs_chat_session
+            if "is_first_turn" in st.session_state:
+                del st.session_state.is_first_turn
+            st.rerun()
+
     st.divider()
 
     st.caption("⚙️ 系统状态")
@@ -166,8 +177,10 @@ model = genai.GenerativeModel(model_name=selected_model_name)
 # ================= 模式 1：客服实战副驾 =================
 if app_mode == "💬 客服实战副驾":
     st.subheader("💬 实时客服支援系统")
+    
+    # 显示完整的历史对话（不再限制显示最后6条，方便客服回溯上下文）
     if st.session_state.chat_history:
-        for role, text in st.session_state.chat_history[-6:]:
+        for role, text in st.session_state.chat_history:
             if role == "user":
                 with st.chat_message("user", avatar="👤"): st.write(text)
             else:
@@ -175,15 +188,22 @@ if app_mode == "💬 客服实战副驾":
                     safe_text, _ = smart_compliance_filter(text, st.session_state.banned_words)
                     st.markdown(safe_text)
 
+    # 🔴 核心指令修改：赋予连续对话能力
     system_instruction = """
     你是 Burton China 客服智能副驾。
-    1. **独立问答**：忽略历史，每一次提问都是新客户。
-    2. **主动反问**：如客户未提供【性别】、【体重】或【鞋码】，必须在回复末尾反问，严禁预设。
-    3. **合规**：严禁极限词(最、第一、顶级等)。
-    4. **价格隐藏**：严禁输出具体金额，引导看店铺活动。
+    1. **连贯问答 (Contextual)**：请记住当前客户在历史对话中提供的信息。如果客户已提供过【性别】、【体重】或【鞋码】，在后续推荐中直接使用该数据，严禁重复反问。如果关键信息依然缺失，必须在回复末尾主动反问。
+    2. **合规**：严禁极限词(最、第一、顶级等)。
+    3. **价格隐藏**：严禁输出具体金额，引导看店铺活动。
     输出必须严格包含：### 1️⃣ 🧠 客户画像分析、### 2️⃣ 📚 核心知识胶囊、### 3️⃣ 💬 建议回复话术、### 4️⃣ 🎯 关联销售机会。
+    （如果是简单的客户寒暄如“谢谢”，可不用严格此格式，自然回复即可）
     """
     
+    # 初始化持久化的 Chat Session
+    if "cs_chat_session" not in st.session_state:
+        model_with_sys = genai.GenerativeModel(model_name=selected_model_name, system_instruction=system_instruction)
+        st.session_state.cs_chat_session = model_with_sys.start_chat(history=[])
+        st.session_state.is_first_turn = True # 标记是否是第一句话
+
     user_query = st.chat_input("在此输入客户问题 (例如：帮我选个单板)...")
     if user_query:
         if not api_key or not st.session_state.gemini_files:
@@ -191,14 +211,20 @@ if app_mode == "💬 客服实战副驾":
         else:
             with st.chat_message("user", avatar="👤"): st.write(user_query)
             try:
-                model_with_sys = genai.GenerativeModel(model_name=selected_model_name, system_instruction=system_instruction)
-                chat = model_with_sys.start_chat(history=[])
-                
                 with st.chat_message("assistant", avatar="🏂"):
-                    with st.spinner("🤖 正在生成销售策略..."):
-                        response = chat.send_message(st.session_state.gemini_files + [user_query])
+                    with st.spinner("🤖 正在结合上下文推理销售策略..."):
+                        
+                        # 🔴 核心优化：只在第一句话把厚厚的文档扔给它，后面只传字，省钱又快！
+                        if st.session_state.is_first_turn:
+                            payload = st.session_state.gemini_files + [user_query]
+                            st.session_state.is_first_turn = False
+                        else:
+                            payload = [user_query]
+                            
+                        response = st.session_state.cs_chat_session.send_message(payload)
                         final_text_display, has_issues = smart_compliance_filter(response.text, st.session_state.banned_words)
                         st.markdown(final_text_display)
+                        
                         if has_issues: st.toast("🛡️ 已替换极限词，价格已隐藏。", icon="✅")
                 
                 st.session_state.chat_history.append(("user", user_query))
@@ -206,14 +232,13 @@ if app_mode == "💬 客服实战副驾":
             except Exception as e:
                 st.error(f"生成失败: {e}")
 
-# ================= 模式 2：AI 模拟陪练营 =================
+# ================= 模式 2：AI 模拟陪练营 (原样保留) =================
 elif app_mode == "🎓 AI 新星起航计划 (内训)":
     st.subheader("🎓 3周结构化陪跑大纲 (Learn & Practice)")
     st.info("💡 **学习指引**：请按照入职周数，循序渐进抽取【知识微课】复习，随后进入【实战模拟】完成课程打卡。")
     
     col1, col2 = st.columns(2)
     with col1:
-        # 🔴 核心修改：3周结构化的课程目录
         train_chapter = st.selectbox(
             "📚 1. 选择今日培训课程", 
             [
@@ -242,7 +267,6 @@ elif app_mode == "🎓 AI 新星起航计划 (内训)":
 
     st.divider()
 
-    # --- 第一阶段：知识微课 ---
     st.markdown("### 📖 第一步：知识充电站 (Micro-Lesson)")
     st.caption("AI 导师已根据最新产品手册提炼本课核心内容，请仔细阅读后再接受考核。")
     
@@ -275,7 +299,6 @@ elif app_mode == "🎓 AI 新星起航计划 (内训)":
 
     st.divider()
 
-    # --- 第二阶段：实战考核 ---
     st.markdown("### ⚔️ 第二步：实战模拟演练 (Role-play Simulation)")
     
     if not st.session_state.training_card:
