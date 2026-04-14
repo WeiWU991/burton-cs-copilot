@@ -6,17 +6,16 @@ import time
 import datetime
 import re
 
-# ================= 配置区 =================
+# ================= 1. 基础配置 =================
 st.set_page_config(page_title="Burton CS Co-pilot", page_icon="🏂", layout="wide")
 
 KB_FOLDER = "knowledge_base"
 LOG_FOLDER = "chat_logs"
 
-# 自动创建日志文件夹
 if not os.path.exists(LOG_FOLDER): 
     os.makedirs(LOG_FOLDER)
 
-# --- 1. 读取 Secrets ---
+# --- API 连接 ---
 try:
     api_key = st.secrets["GEMINI_API_KEY"]
     genai.configure(api_key=api_key)
@@ -25,7 +24,7 @@ except Exception as e:
     api_status = f"⚠️ 配置错误: {str(e)}"
     api_key = None
 
-# --- 2. 初始化 Session State ---
+# --- 初始化状态 ---
 if "chat_history" not in st.session_state:
     st.session_state.chat_history = []
 if "gemini_files" not in st.session_state:
@@ -41,7 +40,7 @@ if "training_card" not in st.session_state:
 if "is_first_turn" not in st.session_state:
     st.session_state.is_first_turn = True
 
-# ================= 核心逻辑：每日日志系统 =================
+# ================= 2. 核心逻辑：日志、自愈与货号拦截 =================
 def save_to_daily_log(role, text):
     today_str = datetime.datetime.now().strftime("%Y-%m-%d")
     timestamp = datetime.datetime.now().strftime("%H:%M:%S")
@@ -53,7 +52,6 @@ def save_to_daily_log(role, text):
             f.write(log_entry)
     except: pass
 
-# ================= 核心逻辑：403 知识库自愈 =================
 def reset_knowledge_base():
     load_knowledge_base_files.clear()
     load_banned_words.clear()
@@ -63,36 +61,25 @@ def reset_knowledge_base():
     st.session_state.is_first_turn = True
     st.rerun()
 
-# ================= 核心逻辑：货号智能截断拦截器 (已修复中文连字Bug) =================
 def normalize_product_id(query):
-    """
-    智能处理货号逻辑：
-    - 6位数字：触发前缀匹配，搜索所有相关变体。
-    - 7位及以上数字：截取前6位，锁定核心产品。
-    """
-    # 🔴 使用正负向预查 (?<!\d) 和 (?!\d) 替代 \b，完美解决中文数字连在一起无法识别的问题
+    # 精准抓取数字，修复中文连字无法识别的Bug
     all_numbers = re.findall(r'(?<!\d)\d{6,15}(?!\d)', query)
-    
     if not all_numbers:
         return query
     
-    # 去重处理
     all_numbers = list(set(all_numbers))
-    
     hints = []
     for num in all_numbers:
         base_id = num[:6]
         if len(num) == 6:
-            hints.append(f"客户输入了 Base ID '{num}'。请全面检索并参考知识库中以此 6 位数字开头的**所有**产品档案。")
+            hints.append(f"客户输入了 Base ID '{num}'。请全面检索知识库中以此 6 位数字开头的**所有**产品档案。")
         else:
             hints.append(f"客户输入了长货号 '{num}'。请自动截取前 6 位 '{base_id}' 作为核心 Base ID 进行检索，忽略颜色码。")
     
-    # 🔴 增加防漏嘴指令：警告 AI 不要把后台处理逻辑当做客服话术说出来
     hint_text = f"\n\n[⚙️系统底层指令(不对外暴露): {'; '.join(hints)}。警告：请直接输出专业产品介绍，绝对不要向客户解释你截取了货号或忽略了颜色码！]"
-    
     return query + hint_text
 
-# ================= 核心逻辑：智能合规过滤 =================
+# ================= 3. 核心逻辑：合规过滤 =================
 SAFE_WORDS = {
     "Burton", "BURTON", "burton", 
     "Anon", "ANON", "anon",
@@ -192,7 +179,7 @@ if api_key and not st.session_state.kb_loaded:
         st.session_state.gemini_files = load_knowledge_base_files()
         st.session_state.kb_loaded = True
 
-# ================= 侧边栏 =================
+# ================= 4. 侧边栏 =================
 with st.sidebar:
     st.image("https://upload.wikimedia.org/wikipedia/commons/thumb/3/3b/Burton_Snowboards_logo.svg/2560px-Burton_Snowboards_logo.svg.png", width=150)
     app_mode = st.radio("🎯 核心功能模块:", ["💬 客服实战副驾", "🎓 AI 新星起航计划 (内训)"])
@@ -227,16 +214,15 @@ with st.sidebar:
                 with open(selected_log, "rb") as f:
                     st.download_button("📥 下载选定日志", f, file_name=os.path.basename(selected_log), use_container_width=True)
             else:
-                st.info("暂无对话记录")
+                st.info("暂无记录")
 
-# ================= 主界面 =================
+# ================= 5. 主界面 =================
 st.title("🏂 Burton China AI Hub")
 st.caption("🚀 Powered by YZ-Shield | Enterprise CS & Training Engine")
 st.divider() 
 
 model = genai.GenerativeModel(model_name=selected_model_name)
 
-# ================= 模式 1：客服实战副驾 =================
 if app_mode == "💬 客服实战副驾":
     st.subheader("💬 实时客服支援系统")
     
@@ -249,7 +235,6 @@ if app_mode == "💬 客服实战副驾":
                     safe_text, _ = smart_compliance_filter(text, st.session_state.banned_words)
                     st.markdown(safe_text)
 
-    # 🔥 核心更新：加入防污染指令和货号匹配规则
     system_instruction = """
     你是 Burton China 客服智能副驾。
     1. **连贯问答**：记住客户提供的【性别】、【体重】或【鞋码】，严禁重复反问。
@@ -271,11 +256,8 @@ if app_mode == "💬 客服实战副驾":
             st.error("⚠️ 系统未准备就绪。")
         else:
             save_to_daily_log("user", user_query)
-            
-            # 前端只显示用户原汁原味的话
             with st.chat_message("user", avatar="👤"): st.write(user_query)
             
-            # 后台悄悄对货号进行截断清洗 (不会显示在界面上)
             processed_query = normalize_product_id(user_query)
             
             try:
@@ -294,7 +276,6 @@ if app_mode == "💬 客服实战副驾":
                         st.markdown(final_text_display)
                         if has_issues: st.toast("🛡️ 已替换极限词，价格已隐藏。", icon="✅")
                 
-                # 历史记录里也只存原本的话，不存系统后台隐形指令，保证美观
                 st.session_state.chat_history.append(("user", user_query))
                 st.session_state.chat_history.append(("assistant", response.text))
                 
@@ -304,7 +285,6 @@ if app_mode == "💬 客服实战副驾":
                 else:
                     st.error(f"生成失败: {e}")
 
-# ================= 模式 2：AI 模拟陪练营 (原样保留) =================
 elif app_mode == "🎓 AI 新星起航计划 (内训)":
     st.subheader("🎓 3周结构化陪跑大纲 (Learn & Practice)")
     st.info("💡 **学习指引**：请按照入职周数，循序渐进抽取【知识微课】复习，随后进入【实战模拟】完成课程打卡。")
