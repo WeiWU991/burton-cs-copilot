@@ -19,7 +19,7 @@ if not os.path.exists(LOG_FOLDER):
 try:
     api_key = st.secrets["GEMINI_API_KEY"]
     genai.configure(api_key=api_key)
-    api_status = "✅ 系统核心已连接 (Gemini 3.0)"
+    api_status = "✅ 核心已连接 (Gemini 3.0)"
 except Exception as e:
     api_status = f"⚠️ 配置错误: {str(e)}"
     api_key = None
@@ -78,7 +78,7 @@ def smart_compliance_filter(text, banned_set):
             text = text.replace(word, f":red[**🚫{word}**](建议改为:{replacement})")
     return text, found
 
-# ================= 4. 知识库自愈 =================
+# ================= 4. 知识库加载与自愈 =================
 @st.cache_resource
 def load_knowledge_base_files():
     uploaded_refs = []
@@ -110,7 +110,7 @@ with st.sidebar:
     
     app_mode = st.radio("🎯 核心模块:", ["💬 客服实战副驾", "🎓 AI 模拟陪练营"])
     
-    if st.button("🗑️ 接待新客户", type="primary", use_container_width=True):
+    if st.button("🗑️ 接待新客户 (清空记忆)", type="primary", use_container_width=True):
         st.session_state.chat_history = []
         st.session_state.is_first_turn = True
         if "cs_chat_session" in st.session_state: del st.session_state.cs_chat_session
@@ -120,32 +120,26 @@ with st.sidebar:
     st.caption("⚙️ 系统状态")
     st.success(api_status) if api_key else st.error(api_status)
     
-    # 重新锁定的 3.0 引擎选择
     model_choice = st.radio("🧠 大脑引擎:", ("⚡ 极速模式 (Flash 3.0)", "🐢 深度思考 (Pro 3.0)"), index=0)
     selected_model_name = "gemini-3-flash-preview" if "Flash" in model_choice else "gemini-3-pro-preview"
     
     if st.button("🔄 唤醒知识库 (修复403)", use_container_width=True):
         reset_knowledge_base()
 
-    # --- 管理员下载模块 ---
-    # 获取 URL 参数
-    q_params = st.query_params
-    if q_params.get("admin") == "true":
-        st.divider()
-        st.success("🔓 管理员模式已开启")
-        
-        if st.button("🥷 退出管理模式", use_container_width=True):
-            st.query_params.clear()
-            st.rerun()
-            
-        st.caption("📂 历史日志下载")
-        all_logs = sorted(glob.glob(os.path.join(LOG_FOLDER, "*.txt")), reverse=True)
-        if all_logs:
-            selected_log = st.selectbox("选择日志日期", all_logs, format_func=lambda x: os.path.basename(x))
-            with open(selected_log, "rb") as f:
-                st.download_button("📥 下载汇总日志", f, file_name=os.path.basename(selected_log), use_container_width=True)
-        else:
-            st.info("暂无对话记录")
+    st.divider()
+    
+    # 🟢 终极防乱码：物理密码锁方案，告别 URL 参数
+    with st.expander("🔐 内部日志系统 (管理员)"):
+        admin_pwd = st.text_input("请输入密令提取日志:", type="password")
+        if admin_pwd == "burton2026":  # 密码设置为 burton2026
+            st.success("验证通过！")
+            all_logs = sorted(glob.glob(os.path.join(LOG_FOLDER, "*.txt")), reverse=True)
+            if all_logs:
+                selected_log = st.selectbox("选择日期", all_logs, format_func=lambda x: os.path.basename(x))
+                with open(selected_log, "rb") as f:
+                    st.download_button("📥 下载选定日志", f, file_name=os.path.basename(selected_log), use_container_width=True)
+            else:
+                st.info("暂无对话记录")
 
 # ================= 6. 主界面 =================
 if app_mode == "💬 客服实战副驾":
