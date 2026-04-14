@@ -10,6 +10,11 @@ import re
 st.set_page_config(page_title="Burton CS Co-pilot", page_icon="🏂", layout="wide")
 
 KB_FOLDER = "knowledge_base"
+LOG_FOLDER = "chat_logs" # 新增：日志文件夹路径
+
+# 自动创建日志文件夹
+if not os.path.exists(LOG_FOLDER): 
+    os.makedirs(LOG_FOLDER)
 
 # --- 1. 读取 Secrets ---
 try:
@@ -33,6 +38,36 @@ if "training_scenario" not in st.session_state:
     st.session_state.training_scenario = ""
 if "training_card" not in st.session_state:
     st.session_state.training_card = ""
+if "is_first_turn" not in st.session_state: # 补齐变量初始化，防止报错
+    st.session_state.is_first_turn = True
+
+# ================= 新增核心逻辑：每日日志系统 =================
+def save_to_daily_log(role, text):
+    """将对话保存到本地文件，按日期归档"""
+    today_str = datetime.datetime.now().strftime("%Y-%m-%d")
+    timestamp = datetime.datetime.now().strftime("%H:%M:%S")
+    log_filename = os.path.join(LOG_FOLDER, f"chat_log_{today_str}.txt")
+    
+    # 过滤掉高亮代码，保存干净文本
+    clean_text = re.sub(r':\w+\[\*\*(.*?)\*\*\]', r'\1', text)
+    log_entry = f"[{timestamp}] {role.upper()}:\n{clean_text}\n{'-'*60}\n"
+    
+    try:
+        with open(log_filename, "a", encoding="utf-8") as f:
+            f.write(log_entry)
+    except Exception:
+        pass
+
+# ================= 新增核心逻辑：403 知识库自愈 =================
+def reset_knowledge_base():
+    """彻底重置缓存，解决 403 报错"""
+    load_knowledge_base_files.clear()
+    load_banned_words.clear()
+    st.session_state.kb_loaded = False
+    if "cs_chat_session" in st.session_state: 
+        del st.session_state.cs_chat_session
+    st.session_state.is_first_turn = True
+    st.rerun()
 
 # ================= 核心逻辑：智能合规过滤 =================
 SAFE_WORDS = {
@@ -144,18 +179,15 @@ with st.sidebar:
     
     app_mode = st.radio("🎯 核心功能模块:", ["💬 客服实战副驾", "🎓 AI 新星起航计划 (内训)"])
     
-    # 🔴 新增：恢复清空记忆按钮（仅在实战副驾模式下显示）
     if app_mode == "💬 客服实战副驾":
         if st.button("🗑️ 接待新客户 (清空记忆)", type="primary", use_container_width=True):
             st.session_state.chat_history = []
             if "cs_chat_session" in st.session_state:
                 del st.session_state.cs_chat_session
-            if "is_first_turn" in st.session_state:
-                del st.session_state.is_first_turn
+            st.session_state.is_first_turn = True
             st.rerun()
 
     st.divider()
-
     st.caption("⚙️ 系统状态")
     if api_key: st.success(api_status)
     else: st.error(api_status)
@@ -163,9 +195,27 @@ with st.sidebar:
     if st.session_state.banned_words:
         st.success(f"🛡️ 护盾激活 ({len(st.session_state.banned_words)} 词条)")
     
+    # 🔴 新增：唤醒知识库按钮 (解决 403 报错)
+    if st.button("🔄 唤醒知识库 (修复403)", use_container_width=True):
+        reset_knowledge_base()
+        
     st.divider()
     model_choice = st.radio("🧠 大脑引擎:", ("⚡ 极速模式 (Flash)", "🐢 深度思考 (Pro)"), index=0)
     selected_model_name = "gemini-3-flash-preview" if "Flash" in model_choice else "gemini-3-pro-preview"
+
+    # 🔴 新增：密码锁管理员后台 (完美避开报错Bug)
+    st.divider()
+    with st.expander("🔐 内部日志系统 (管理员)"):
+        admin_pwd = st.text_input("请输入密令提取日志:", type="password")
+        if admin_pwd == "burton2026":  # 管理员密码
+            st.success("验证通过！")
+            all_logs = sorted(glob.glob(os.path.join(LOG_FOLDER, "*.txt")), reverse=True)
+            if all_logs:
+                selected_log = st.selectbox("选择日期", all_logs, format_func=lambda x: os.path.basename(x))
+                with open(selected_log, "rb") as f:
+                    st.download_button("📥 下载选定日志", f, file_name=os.path.basename(selected_log), use_container_width=True)
+            else:
+                st.info("暂无对话记录")
 
 # ================= 主界面 =================
 st.title("🏂 Burton China AI Hub")
@@ -178,7 +228,6 @@ model = genai.GenerativeModel(model_name=selected_model_name)
 if app_mode == "💬 客服实战副驾":
     st.subheader("💬 实时客服支援系统")
     
-    # 显示完整的历史对话（不再限制显示最后6条，方便客服回溯上下文）
     if st.session_state.chat_history:
         for role, text in st.session_state.chat_history:
             if role == "user":
@@ -188,7 +237,6 @@ if app_mode == "💬 客服实战副驾":
                     safe_text, _ = smart_compliance_filter(text, st.session_state.banned_words)
                     st.markdown(safe_text)
 
-    # 🔴 核心指令修改：赋予连续对话能力
     system_instruction = """
     你是 Burton China 客服智能副驾。
     1. **连贯问答 (Contextual)**：请记住当前客户在历史对话中提供的信息。如果客户已提供过【性别】、【体重】或【鞋码】，在后续推荐中直接使用该数据，严禁重复反问。如果关键信息依然缺失，必须在回复末尾主动反问。
@@ -198,23 +246,24 @@ if app_mode == "💬 客服实战副驾":
     （如果是简单的客户寒暄如“谢谢”，可不用严格此格式，自然回复即可）
     """
     
-    # 初始化持久化的 Chat Session
     if "cs_chat_session" not in st.session_state:
         model_with_sys = genai.GenerativeModel(model_name=selected_model_name, system_instruction=system_instruction)
         st.session_state.cs_chat_session = model_with_sys.start_chat(history=[])
-        st.session_state.is_first_turn = True # 标记是否是第一句话
+        st.session_state.is_first_turn = True 
 
     user_query = st.chat_input("在此输入客户问题 (例如：帮我选个单板)...")
     if user_query:
         if not api_key or not st.session_state.gemini_files:
             st.error("⚠️ 系统未准备就绪。")
         else:
+            # 🔴 新增：保存用户问题到日志
+            save_to_daily_log("user", user_query)
             with st.chat_message("user", avatar="👤"): st.write(user_query)
+            
             try:
                 with st.chat_message("assistant", avatar="🏂"):
                     with st.spinner("🤖 正在结合上下文推理销售策略..."):
                         
-                        # 🔴 核心优化：只在第一句话把厚厚的文档扔给它，后面只传字，省钱又快！
                         if st.session_state.is_first_turn:
                             payload = st.session_state.gemini_files + [user_query]
                             st.session_state.is_first_turn = False
@@ -222,6 +271,10 @@ if app_mode == "💬 客服实战副驾":
                             payload = [user_query]
                             
                         response = st.session_state.cs_chat_session.send_message(payload)
+                        
+                        # 🔴 新增：保存 AI 回答到日志
+                        save_to_daily_log("assistant", response.text)
+                        
                         final_text_display, has_issues = smart_compliance_filter(response.text, st.session_state.banned_words)
                         st.markdown(final_text_display)
                         
@@ -229,8 +282,13 @@ if app_mode == "💬 客服实战副驾":
                 
                 st.session_state.chat_history.append(("user", user_query))
                 st.session_state.chat_history.append(("assistant", response.text))
+                
             except Exception as e:
-                st.error(f"生成失败: {e}")
+                # 🔴 新增：精准捕获 403 错误并给出明确指引
+                if "403" in str(e):
+                    st.error("⚠️ 知识库底层连接已过期。请点击左侧边栏的【🔄 唤醒知识库 (修复403)】按钮恢复。")
+                else:
+                    st.error(f"生成失败: {e}")
 
 # ================= 模式 2：AI 模拟陪练营 (原样保留) =================
 elif app_mode == "🎓 AI 新星起航计划 (内训)":
