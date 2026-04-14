@@ -1,11 +1,4 @@
-<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="UTF-8">
-    <title>最终合并代码（代码2全部功能 + 代码1样式）</title>
-</head>
-<body>
-<pre><code>import streamlit as st
+import streamlit as st
 import google.generativeai as genai
 import os
 import glob
@@ -77,12 +70,10 @@ def normalize_product_id(query):
     - 6位数字：触发前缀匹配，搜索所有相关变体。
     - 7位及以上数字：截取前6位，锁定核心产品。
     """
-    # 使用正负向预查，完美解决中文连字Bug
     all_numbers = re.findall(r'(?<!\d)\d{6,15}(?!\d)', query)
     if not all_numbers:
         return query
 
-    # 去重处理
     all_numbers = list(set(all_numbers))
     hints = []
     for num in all_numbers:
@@ -92,7 +83,6 @@ def normalize_product_id(query):
         else:
             hints.append(f"客户输入了长货号 '{num}'。请自动截取前 6 位 '{base_id}' 作为核心 Base ID 进行检索，忽略颜色码。")
 
-    # 防漏嘴指令
     hint_text = f"\n\n[⚙️系统底层指令(不对外暴露): {'; '.join(hints)}。警告：请直接输出专业产品介绍，绝对不要向客户解释你截取了货号或忽略了颜色码！]"
     return query + hint_text
 
@@ -204,7 +194,6 @@ with st.sidebar:
     app_mode = st.radio("🎯 核心功能模块:", 
                         ["💬 客服实战副驾", "🎓 AI 新星起航计划 (内训)"])
     
-    # 新客户按钮永远显示（和代码1一致）
     if st.button("🗑️ 接待新客户 (清空记忆)", type="primary", use_container_width=True):
         st.session_state.chat_history = []
         if "cs_chat_session" in st.session_state:
@@ -214,13 +203,11 @@ with st.sidebar:
     
     st.divider()
     
-    # 系统状态（硬编码，和代码1完全一致，避免任何Delta泄露）
     if api_key:
         st.success("✅ 系统核心已连接")
     else:
         st.error(api_status)
     
-    # 护盾状态（代码2新功能，保留）
     if st.session_state.banned_words:
         st.success(f"🛡️ 护盾激活 ({len(st.session_state.banned_words)} 词条)")
     
@@ -236,7 +223,6 @@ with st.sidebar:
     
     st.divider()
     
-    # 管理员日志（代码2完整功能）
     with st.expander("🔐 内部日志系统 (管理员)"):
         admin_pwd = st.text_input("请输入密令提取日志:", type="password")
         if admin_pwd == "burton2026":
@@ -253,14 +239,12 @@ with st.sidebar:
                 st.info("暂无对话记录")
 
 # ================= 主界面（完全按照代码1的干净样式） =================
-# 全局只创建一个不带 system_instruction 的 model（供内训模式使用）
 model = genai.GenerativeModel(model_name=selected_model_name)
 
-# ================= 模式 1：客服实战副驾（样式和代码1完全一致） =================
+# ================= 模式 1：客服实战副驾 =================
 if app_mode == "💬 客服实战副驾":
-    st.title("🏂 Burton 客服副驾")   # ← 代码1的标题样式
+    st.title("🏂 Burton 客服副驾")
     
-    # 渲染历史消息（使用代码2的合规过滤）
     if st.session_state.chat_history:
         for role, text in st.session_state.chat_history:
             if role == "user":
@@ -271,7 +255,6 @@ if app_mode == "💬 客服实战副驾":
                     safe_text, _ = smart_compliance_filter(text, st.session_state.banned_words)
                     st.markdown(safe_text)
     
-    # 🔥 代码2的完整 system_instruction（所有功能保留）
     system_instruction = """
     你是 Burton China 客服智能副驾。
     1. **连贯问答**：记住客户提供的【性别】、【体重】或【鞋码】，严禁重复反问。
@@ -282,7 +265,6 @@ if app_mode == "💬 客服实战副驾":
     输出必须严格包含：### 1️⃣ 🧠 客户画像分析、### 2️⃣ 📚 核心知识胶囊、### 3️⃣ 💬 建议回复话术、### 4️⃣ 🎯 关联销售机会。
     """
     
-    # 初始化聊天会话
     if "cs_chat_session" not in st.session_state:
         model_with_sys = genai.GenerativeModel(
             model_name=selected_model_name, 
@@ -299,11 +281,9 @@ if app_mode == "💬 客服实战副驾":
         else:
             save_to_daily_log("user", user_query)
             
-            # 前端只显示用户原话
             with st.chat_message("user", avatar="👤"):
                 st.write(user_query)
             
-            # 后台悄悄处理货号
             processed_query = normalize_product_id(user_query)
             
             try:
@@ -325,7 +305,6 @@ if app_mode == "💬 客服实战副驾":
                         if has_issues:
                             st.toast("🛡️ 已替换极限词，价格已隐藏。", icon="✅")
                 
-                # 历史只存干净内容
                 st.session_state.chat_history.append(("user", user_query))
                 st.session_state.chat_history.append(("assistant", response.text))
                 
@@ -335,7 +314,7 @@ if app_mode == "💬 客服实战副驾":
                 else:
                     st.error(f"生成失败: {e}")
 
-# ================= 模式 2：AI 新星起航计划 (内训)（代码2完整功能） =================
+# ================= 模式 2：AI 新星起航计划 (内训) =================
 elif app_mode == "🎓 AI 新星起航计划 (内训)":
     st.subheader("🎓 3周结构化陪跑大纲 (Learn & Practice)")
     st.info("💡 **学习指引**：请按照入职周数，循序渐进抽取【知识微课】复习，随后进入【实战模拟】完成课程打卡。")
@@ -459,6 +438,3 @@ elif app_mode == "🎓 AI 新星起航计划 (内训)":
                         st.error("评分失败。")
             else:
                 st.warning("请先输入您的回复话术！")
-</code></pre>
-</body>
-</html>
