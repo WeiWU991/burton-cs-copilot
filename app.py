@@ -128,10 +128,10 @@ with st.sidebar:
 
     st.divider()
     
-    # 🟢 终极防乱码：物理密码锁方案，告别 URL 参数
+    # 🟢 密码锁逻辑
     with st.expander("🔐 内部日志系统 (管理员)"):
         admin_pwd = st.text_input("请输入密令提取日志:", type="password")
-        if admin_pwd == "burton2026":  # 密码设置为 burton2026
+        if admin_pwd == "burton2026": 
             st.success("验证通过！")
             all_logs = sorted(glob.glob(os.path.join(LOG_FOLDER, "*.txt")), reverse=True)
             if all_logs:
