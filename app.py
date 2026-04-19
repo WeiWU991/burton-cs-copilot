@@ -200,11 +200,30 @@ with st.sidebar:
 
 # ================= 5. 实战/培训逻辑 (Gemini 3 适配) =================
 MODEL_ID = "gemini-3-flash-preview"
-SYS_PROMPT = """你是 Burton China 客服专家。
+
+# 🟢 新增：强行读取白名单文件内容
+whitelist_content = ""
+whitelist_path = glob.glob(os.path.join(DIR_RULES, "*当季主推商品白名单*.md"))
+if whitelist_path:
+    try:
+        with open(whitelist_path[0], "r", encoding="utf-8") as f:
+            whitelist_content = f.read()
+    except:
+        pass
+
+# 🟢 修改：将白名单直接注入系统最高指令
+SYS_PROMPT = f"""你是 Burton China 客服专家。
 1. 查尺码/参数必须提供 6 位货号。
 2. Step On 男女款严禁混用！
 3. 格式：### 1️⃣ 画像、### 2️⃣ 知识胶囊、### 3️⃣ 💬 建议回复话术、### 4️⃣ 关联推荐。
-4. 严格防幻觉，不脑补资料外的数据。"""
+4. 严格防幻觉，不脑补资料外的数据。
+
+【💰 关联销售与库存策略 (Highest Priority)】
+在生成关联销售建议时，你必须且只能从以下【当季主推商品清单】中挑选最合适的产品推荐给客户。严禁推荐清单之外的产品！
+=== 主推清单开始 ===
+{whitelist_content}
+=== 主推清单结束 ===
+"""
 
 if app_mode == "💬 客服实战副驾":
     st.title("🏂 Burton 实战副驾")
