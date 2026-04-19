@@ -256,7 +256,7 @@ if app_mode == "💬 客服实战副驾":
         """
 
         if "cs_session" not in st.session_state:
-            model = genai.GenerativeModel("gemini-1.5-flash", system_instruction=sys_instruction)
+            model = genai.GenerativeModel("gemini-3-flash-preview"", system_instruction=sys_instruction)
             st.session_state.cs_session = model.start_chat(history=[])
 
         try:
