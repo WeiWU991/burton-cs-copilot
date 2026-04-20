@@ -190,7 +190,7 @@ with st.sidebar:
         st.rerun()
 
     # 🟢 插入：深度重置模块（用于重置 48 小时文件寿命）
-    if st.button("🔄 深度重置 (重置48小时倒计时)", type="primary", use_container_width=True):
+    if st.button("🔄 重置 (403报错)", type="primary", use_container_width=True):
         with st.spinner("正在清理 Google 云端旧文件并准备重传..."):
             # 1. 强制清除 Google 云端所有残留文件
             try:
