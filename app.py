@@ -179,46 +179,52 @@ if "chat_history" not in st.session_state:
 # ================= 4. UI 侧边栏 =================
 with st.sidebar:
     st.image("https://upload.wikimedia.org/wikipedia/commons/thumb/3/3b/Burton_Snowboards_logo.svg/2560px-Burton_Snowboards_logo.svg.png", width=120)
-    st.write("✨ 引擎版本: `gemini-3-flash`")  # 已更新为正式模型名
+    st.write("✨ 引擎版本: `gemini-3-flash`")
     
     app_mode = st.radio("🎯 功能模块:", ["💬 客服实战副驾", "🎓 AI 模拟陪练营"])
     
-    # 按钮 1：普通的清空对话
+    # 按钮 1：普通的清空对话（安全操作，保留在外）
     if st.button("🗑️ 接待新客户 (清空记忆)", use_container_width=True):
         st.session_state.chat_history = []
         if "cs_session" in st.session_state: del st.session_state.cs_session
         st.rerun()
 
-    # 🟢 插入：深度重置模块（用于重置 48 小时文件寿命）
-    if st.button("🔄 重置 (403报错)", type="primary", use_container_width=True):
-        with st.spinner("正在清理 Google 云端旧文件并准备重传..."):
-            # 1. 强制清除 Google 云端所有残留文件
-            try:
-                for f in genai.list_files():
-                    f.delete()
-            except Exception as e:
-                pass
-            
-            # 2. 清除网页本地缓存
-            st.cache_resource.clear()
-            if "kb_engine" in st.session_state:
-                del st.session_state.kb_engine
-                
-        # 3. 重启应用，触发全新的进度条扫描和上传
-        st.rerun()
-
     st.divider()
     
-    # 内部日志管理保持原样
-    with st.expander("🔐 内部日志管理"):
+    # 🟢 升级版密码箱：管理员控制台 (包含日志与重置系统)
+    with st.expander("🔐 管理员控制台 (系统维护)"):
         pwd = st.text_input("输入密令:", type="password")
+        
+        # 只有密码正确，才会显示下面的高级功能
         if pwd == "burton2026":
-            st.success("验证成功")
+            st.success("身份验证成功，欢迎管理员。")
+            
+            st.markdown("#### 1. 系统底层维护")
+            st.caption("⚠️ 警告：点击后将清空云端并重新上传所有知识库。")
+            # 把核按钮藏在这里！
+            if st.button("🚨 深度重置云端引擎", type="primary", use_container_width=True):
+                with st.spinner("正在炸毁云端旧缓存并准备重建..."):
+                    try:
+                        for f in genai.list_files():
+                            f.delete()
+                    except Exception as e:
+                        pass
+                    
+                    st.cache_resource.clear()
+                    if "kb_engine" in st.session_state:
+                        del st.session_state.kb_engine
+                st.rerun()
+                
+            st.markdown("---")
+            
+            st.markdown("#### 2. 客服聊天日志下载")
             logs = sorted(glob.glob(os.path.join(DIR_LOGS, "*.txt")), reverse=True)
             if logs:
                 selected = st.selectbox("选择日期", logs, format_func=lambda x: os.path.basename(x))
                 with open(selected, "rb") as f:
                     st.download_button("📥 下载选定日志", f, file_name=os.path.basename(selected), use_container_width=True)
+            else:
+                st.info("暂无聊天日志")
 
 # ================= 5. 实战/培训逻辑 (Gemini 3 适配) =================
 MODEL_ID = "gemini-3-flash-preview"
